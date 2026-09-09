@@ -158,7 +158,17 @@ jobs:
             # ignore everything else in the file.
             MARKER="# helve-ci: internal CA (appended, not part of the base image)"
             if ! docker exec "$BUILDKIT_CONTAINER" grep -qF "$MARKER" /etc/ssl/certs/ca-certificates.crt 2>/dev/null; then
-              docker cp "$CA_SRC" "$BUILDKIT_CONTAINER:/tmp/internal-ca.pem"
+              # -L: dereference. Arch's trust-anchor extraction (the
+              # candidate list above found this via /etc/ssl/certs/*.pem)
+              # symlinks into /etc/ca-certificates/extracted/cadir/ rather
+              # than storing a real file there. Without -L, docker cp
+              # preserves the symlink object itself - which then points at
+              # a host path that doesn't exist inside the container's
+              # filesystem, so reading it fails, even though the copy
+              # itself reports success. Confirmed with a local tar
+              # simulation (docker cp is tar-stream based under the hood):
+              # identical without-dereference behavior, same failure mode.
+              docker cp -L "$CA_SRC" "$BUILDKIT_CONTAINER:/tmp/internal-ca.pem"
               docker exec "$BUILDKIT_CONTAINER" sh -c \
                 "printf '\n%s\n' \"$MARKER\" >> /etc/ssl/certs/ca-certificates.crt
                  cat /tmp/internal-ca.pem >> /etc/ssl/certs/ca-certificates.crt"
