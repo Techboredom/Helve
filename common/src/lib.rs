@@ -21,7 +21,7 @@ pub struct PodInfo {
     /// e.g. "nvidia.com/gpu" -> 1, "amd.com/gpu" -> 2, summed across containers.
     pub accelerators: BTreeMap<String, i64>,
     /// Username of whoever launched this pod via the Launch tab, if any
-    /// (pods that predate this feature, or weren't launched through Aether,
+    /// (pods that predate this feature, or weren't launched through Helve,
     /// have no owner label and so show `None`).
     pub owner: Option<String>,
     /// The stable Deployment name (the `app` label), unlike the pod's own
@@ -32,14 +32,14 @@ pub struct PodInfo {
     /// Only populated for pods the requester is allowed to see.
     pub credential: Option<PodCredential>,
     /// If its template is proxy-enabled, the URL that opens it through
-    /// Aether itself with the credential already injected — no login
+    /// Helve itself with the credential already injected — no login
     /// prompt, no public IP. A full origin
     /// (`https://<deployment-name>.<proxy base domain>/`) when
     /// per-deployment proxy origins are configured, otherwise the legacy
     /// root-relative `/proxy/<deployment-name>/`.
     pub proxy_path: Option<String>,
     /// How to reach this deployment's own Service, if it has one. Distinct
-    /// from `proxy_path`: that goes through Aether and requires an Aether
+    /// from `proxy_path`: that goes through Helve and requires an Helve
     /// session, which is right for a browser but unusable for a program
     /// (a coding tool pointed at vLLM's OpenAI-compatible API can't log
     /// in). This is the direct address.
@@ -186,7 +186,7 @@ pub struct CreateDeploymentRequest {
     #[serde(default)]
     pub dtype: Option<String>,
     /// Name of an existing `PersistentVolumeClaim` (provisioned out-of-band
-    /// — Aether never creates one itself, e.g. a shared model cache) to
+    /// — Helve never creates one itself, e.g. a shared model cache) to
     /// mount into the container. Requires `volume_mount_path`; rejected
     /// with 400 if no such claim exists in the namespace.
     #[serde(default)]
@@ -205,7 +205,7 @@ pub struct CreateDeploymentRequest {
     /// template's `secret_env_key`.
     #[serde(default)]
     pub generate_secret_for: Option<String>,
-    /// If set, the app is also reachable via Aether's own `/proxy/<name>/`
+    /// If set, the app is also reachable via Helve's own `/proxy/<name>/`
     /// route, which injects the generated credential automatically (if any).
     /// Requires `container_port` to be set. Comes from the selected
     /// template's `proxy_enabled`.
@@ -221,7 +221,7 @@ pub struct CreateDeploymentRequest {
     pub strip_prefix: bool,
     /// Whether Launch creates a public `LoadBalancer` Service (`true`,
     /// default) or a `ClusterIP`-only one (`false`) — must be `false` for
-    /// any app with no auth of its own, since Aether's proxy ownership
+    /// any app with no auth of its own, since Helve's proxy ownership
     /// check then becomes the only thing gating access. Comes from the
     /// selected template's `public_service`.
     #[serde(default = "default_true")]
@@ -251,7 +251,7 @@ pub struct CreateDeploymentResponse {
     /// The generated value, if `generate_secret_for` was set.
     pub secret_value: Option<String>,
     /// Present if `enable_proxy` was set — the root-relative path that opens
-    /// this deployment through Aether with the credential already injected.
+    /// this deployment through Helve with the credential already injected.
     pub proxy_path: Option<String>,
     /// Whether `service_name` (if any) is a public `LoadBalancer` or a
     /// `ClusterIP`-only Service — the frontend uses this to avoid telling
@@ -359,7 +359,7 @@ pub struct TemplateEntry {
     /// var automatically instead of showing it as an editable field — e.g.
     /// JupyterLab's `"JUPYTER_TOKEN"`, RStudio's `"PASSWORD"`.
     pub secret_env_key: Option<String>,
-    /// If true, this app is also reachable via Aether's `/proxy/<name>/`
+    /// If true, this app is also reachable via Helve's `/proxy/<name>/`
     /// route, with `secret_env_key`'s generated value injected automatically
     /// (if any) — no separate login for that path.
     pub proxy_enabled: bool,
@@ -369,7 +369,7 @@ pub struct TemplateEntry {
     /// Whether Launch creates a public `LoadBalancer` Service (default) or
     /// a `ClusterIP`-only one. Must be `false` for templates with no
     /// `secret_env_key` and no other auth of their own (e.g. RStudio run
-    /// with `DISABLE_AUTH=true`), since Aether's own login is then the only
+    /// with `DISABLE_AUTH=true`), since Helve's own login is then the only
     /// gate.
     pub public_service: bool,
     /// See `CreateDeploymentRequest::readiness_path`. Empty means no probe.

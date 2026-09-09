@@ -12,7 +12,7 @@ env:
   # form outright. GitHub Actions has no built-in toLower() expression, and
   # this project only ever runs under this one owner, so hardcoding it is
   # simpler than a shell step to lowercase it on every job that needs it.
-  IMAGE_NAME: techboredom/aether
+  IMAGE_NAME: techboredom/helve
   # See ci.yml's identical setting for why this is explicit rather than
   # relying on the runner's current default.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -139,9 +139,9 @@ jobs:
         run: |
           VERSION="${{ needs.merge.outputs.version }}"
           mkdir -p /tmp/chart-out
-          helm package charts/aether --version "$VERSION" --app-version "$VERSION" --destination /tmp/chart-out
+          helm package charts/helve --version "$VERSION" --app-version "$VERSION" --destination /tmp/chart-out
           # Same lowercase-hardcoding reasoning as IMAGE_NAME above.
-          helm push "/tmp/chart-out/aether-$VERSION.tgz" "oci://${{ env.REGISTRY }}/techboredom/charts"
+          helm push "/tmp/chart-out/helve-$VERSION.tgz" "oci://${{ env.REGISTRY }}/techboredom/charts"
 
   release:
     name: Create GitHub Release

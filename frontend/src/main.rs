@@ -99,7 +99,7 @@ fn AppShell(user: UserInfo, current_user: RwSignal<Option<UserInfo>>, theme: RwS
                 // header already runs to ~1130px of a ~1136px track (main caps
                 // at 1200px), so adding it — at any size, even 16px — wraps the
                 // account controls onto a second row at every viewport width.
-                <h1>"Aether"</h1>
+                <h1>"Helve"</h1>
                 <nav class="tabs">
                     <button
                         class="tab-button"

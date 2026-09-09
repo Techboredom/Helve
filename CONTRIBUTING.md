@@ -8,7 +8,7 @@
 - A Postgres instance for anything backend-related (a throwaway
   `docker run -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16-alpine`
   is enough — migrations run automatically on startup via `sqlx::migrate!()`).
-- [Helm](https://helm.sh) 3.x if you're changing `charts/aether/`.
+- [Helm](https://helm.sh) 3.x if you're changing `charts/helve/`.
 
 ## Building and running
 
@@ -36,11 +36,11 @@ cd frontend && cargo clippy --target wasm32-unknown-unknown -- -D warnings
 and a blanket reformat would bury real changes in unrelated diffs. Match
 the style of the surrounding code instead of reformatting files you touch.
 
-If you change anything under `charts/aether/`:
+If you change anything under `charts/helve/`:
 
 ```
-helm lint charts/aether
-helm template charts/aether --set host=example.test
+helm lint charts/helve
+helm template charts/helve --set host=example.test
 ```
 
 ## Testing philosophy

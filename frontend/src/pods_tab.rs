@@ -153,7 +153,7 @@ fn PodRow(pod: PodInfo, selected_pod: RwSignal<Option<String>>, is_admin: bool) 
                                         class="icon-button primary-action"
                                         href=path
                                         target="_blank"
-                                        title="Open through Aether — already logged in, no token needed"
+                                        title="Open through Helve — already logged in, no token needed"
                                         on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
                                     >
                                         "Open"
@@ -178,7 +178,7 @@ fn PodRow(pod: PodInfo, selected_pod: RwSignal<Option<String>>, is_admin: bool) 
                             // the address another pod uses, which is what a coding
                             // tool pointed at an OpenAI-compatible API needs. The
                             // proxy link can't serve that purpose — it requires an
-                            // Aether session a program doesn't have.
+                            // Helve session a program doesn't have.
                             {internal_address.map(|addr| {
                                 view! {
                                     <code

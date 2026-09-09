@@ -1,4 +1,4 @@
-# Aether
+# Helve
 
 A web app for managing compute environments and AI engines on a Kubernetes
 namespace — launch JupyterLab/RStudio environments or LLM inference engines
@@ -7,7 +7,7 @@ namespace — launch JupyterLab/RStudio environments or LLM inference engines
 It's a scoped-down slice of the broader platform described in `SPEC.md`,
 built to what's actually buildable today: this cluster has no ingress
 controller, so there's no Gateway layer, and a StorageClass is only just
-being added (see "Status & known limitations" below) — Aether's own
+being added (see "Status & known limitations" below) — Helve's own
 Postgres is wired up to use it (CloudNativePG, see "Deploying to
 Kubernetes" below) but isn't live yet.
 
@@ -33,7 +33,7 @@ Launch; only admins see Templates and Users.
   Ollama, vLLM and SGLang are `ClusterIP` with no proxy, and it's the
   address you point another pod (a coding tool calling an
   OpenAI-compatible API, say) at. The proxy link can't serve that
-  purpose: it requires an Aether session, which a program doesn't have.
+  purpose: it requires an Helve session, which a program doesn't have.
   A `LoadBalancer` still waiting on an address shows no Direct link
   rather than a half-formed one. Click a row to open its detail panel: per-container
   state and failure reason (`CrashLoopBackOff`, `ImagePullBackOff`, exit
@@ -42,7 +42,7 @@ Launch; only admins see Templates and Users.
 - **Launch** — creates a `Deployment` in that namespace, owned by whichever
   account launched it, and if a container port is given, also a Service
   exposing it — `LoadBalancer` (public, since there's no ingress) by
-  default, or `ClusterIP`-only for templates where Aether's own proxy is the
+  default, or `ClusterIP`-only for templates where Helve's own proxy is the
   intended (and, for RStudio, only) way in (JupyterLab, RStudio). There's
   no name field to fill in — the Deployment/Service is auto-named
   `<your username>-<template name>-<random>` (or `<your username>-<image>-
@@ -58,13 +58,13 @@ Launch; only admins see Templates and Users.
   entirely and generate a random value for it at launch time instead —
   shown once in the success message and persistently on the Pods tab, no
   need to invent or type one yourself. JupyterLab and RStudio are also
-  reachable by clicking "Open" — Aether proxies straight into an
+  reachable by clicking "Open" — Helve proxies straight into an
   already-authenticated (or, for RStudio, auth-free) session.
 - **Templates** *(admin only)* — CRUD for the templates the Launch tab
   offers: a table of existing templates (edit/delete) and a form to add a
   new one (same fields as a template pre-fills into Launch, plus notes shown
   when it's selected there, plus an optional "auto-generate a secret for
-  this env var" field and a "proxy through Aether" checkbox — see below).
+  this env var" field and a "proxy through Helve" checkbox — see below).
 - **Users** *(admin only)* — create accounts (username, password, role),
   delete them, and reset any account's password without knowing the old one
   (forces that account to log in again everywhere, on every device). Still
@@ -88,13 +88,13 @@ Any logged-in user (either role) can change their own password via
 
 ## Quick start
 
-Aether installs via Helm from the published chart:
+Helve installs via Helm from the published chart:
 
 ```console
-helm install aether oci://ghcr.io/techboredom/charts/aether \
-  --namespace aether --create-namespace \
-  --set host=aether.example.com \
-  --set database.existingSecret=aether-db-app \
+helm install helve oci://ghcr.io/techboredom/charts/helve \
+  --namespace helve --create-namespace \
+  --set host=helve.example.com \
+  --set database.existingSecret=helve-db-app \
   --set ingress.tls.issuerRef.name=letsencrypt \
   --set adminBootstrap.password=<a-temporary-password>
 ```
@@ -107,17 +107,17 @@ password. Everything else in the chart has a working default.
 Just want to see it running, with no Postgres or cert-manager on hand?
 
 ```console
-helm install aether oci://ghcr.io/techboredom/charts/aether \
-  --namespace aether --create-namespace \
-  --set host=aether.example.test \
+helm install helve oci://ghcr.io/techboredom/charts/helve \
+  --namespace helve --create-namespace \
+  --set host=helve.example.test \
   --set database.deploy.enabled=true \
   --set ingress.tls.enabled=false \
   --set adminBootstrap.password=<a-temporary-password>
 ```
 
 Log in as `admin` with that password once the pod is `Ready`
-(`kubectl get pods -n aether`), then change it — see "Change password" in
-the header, both roles can. See `charts/aether/README.md` for the full
+(`kubectl get pods -n helve`), then change it — see "Change password" in
+the header, both roles can. See `charts/helve/README.md` for the full
 values reference, the guards the chart enforces before it will render at
 all, and a worked cert-manager + Let's Encrypt example (its DNS-01
 requirement, specifically — the wildcard proxy origin below means HTTP-01
@@ -153,14 +153,14 @@ frontend/src/api.rs             Typed wrappers over gloo_net (encode, send, deco
 frontend/src/result_banner.rs   Shared success/error banner components every form uses
 frontend/src/theme.rs           Light/dark theme toggle (data-theme attribute + localStorage)
 Dockerfile                 Multi-stage build: compiles both crates, ships a distroless image
-charts/aether/             Helm chart — the supported way to install this on your own cluster
+charts/helve/             Helm chart — the supported way to install this on your own cluster
 .github/workflows/         Public CI (test/lint/helm-lint) and the tagged-release pipeline
 SPEC.md                    The broader platform vision this app is a slice of
 ```
 
-This maintainer's own deployment of Aether (which cluster, which registry,
+This maintainer's own deployment of Helve (which cluster, which registry,
 how it's kept in sync) isn't covered in this README — see "Quick start"
-above and `charts/aether/README.md` for installing your own.
+above and `charts/helve/README.md` for installing your own.
 
 ## Running locally
 
@@ -230,8 +230,8 @@ All flags can also be set as environment variables:
 | `--static-dir` / `STATIC_DIR` | `frontend/dist` | Directory of the built frontend to serve |
 | `--database-url` / `DATABASE_URL` | *(required)* | Postgres connection string for the image/template catalogs and accounts |
 | `--admin-bootstrap-password` / `ADMIN_BOOTSTRAP_PASSWORD` | *(none)* | Creates the initial `admin` account on first run only; ignored once any user exists |
-| `--app-origin` / `APP_ORIGIN` | *(none)* | Public origin this app is served from, e.g. `https://aether.example.com`. Must be set together with `--proxy-base-domain` |
-| `--proxy-base-domain` / `PROXY_BASE_DOMAIN` | *(none)* | Base domain for per-deployment proxy origins, e.g. `proxy.aether.example.com`. Needs wildcard DNS + TLS for `*.<domain>`. **Leaving it unset is only appropriate for local development** — see "Per-deployment proxy origins" below |
+| `--app-origin` / `APP_ORIGIN` | *(none)* | Public origin this app is served from, e.g. `https://helve.example.com`. Must be set together with `--proxy-base-domain` |
+| `--proxy-base-domain` / `PROXY_BASE_DOMAIN` | *(none)* | Base domain for per-deployment proxy origins, e.g. `proxy.helve.example.com`. Needs wildcard DNS + TLS for `*.<domain>`. **Leaving it unset is only appropriate for local development** — see "Per-deployment proxy origins" below |
 
 ### Endpoints
 
@@ -241,7 +241,7 @@ present at all, an `Authorization: Bearer <token>` header naming a valid
 API token (see "Admin API tokens" below) — the ones marked *(admin)*
 additionally require the `admin` role either way (403 otherwise).
 
-- `POST /api/login` — body `{username, password}`; sets the `aether_session` cookie and returns the logged-in `UserInfo` on success, 401 on bad credentials
+- `POST /api/login` — body `{username, password}`; sets the `helve_session` cookie and returns the logged-in `UserInfo` on success, 401 on bad credentials
 - `POST /api/logout` — clears the session (both server-side and the cookie)
 - `GET /api/me` — returns the current `UserInfo` (`{id, username, role}`), or 401 if not logged in — this is what the frontend polls on load to decide whether to show the login page
 - `PUT /api/me/password` — body `{current_password, new_password}`; changes your own password, 400 if `current_password` doesn't match. Deletes every other session for your account (`DELETE FROM sessions WHERE user_id = $1 AND token != $2`) but leaves the one making this request logged in.
@@ -254,20 +254,20 @@ additionally require the `admin` role either way (403 otherwise).
 - `POST /api/tokens` *(admin)* — body `{name}` (a human label, e.g. `"CI automation"`); mints a new API token authenticating as the calling admin. Response is `{id, name, token, created_at}` — `token` is the raw value, and this is the only time it's ever returned; only its SHA-256 hash is stored. See "Admin API tokens" below.
 - `GET /api/tokens` *(admin)* — lists the caller's own tokens: `{id, name, created_at, last_used_at}` — never another admin's tokens, never a raw value again.
 - `DELETE /api/tokens/{id}` *(admin)* — revokes one of the caller's own tokens, effective immediately. 400 if it doesn't exist or belongs to someone else (same error either way, so this can't be used to probe another account's token ids).
-- `GET /api/pods` — JSON snapshot of the current pods in the watched namespace, filtered by role: a `user` only gets pods whose `aether.io/owner` label matches their own username, an `admin` gets all of them (each with its `owner` field populated). Pods for templates with a `secret_env_key` also carry a `credential: {env_key, value}` looked up from `deployment_secrets`, and pods for proxy-enabled templates carry a `proxy_path: "/proxy/<name>/"`.
+- `GET /api/pods` — JSON snapshot of the current pods in the watched namespace, filtered by role: a `user` only gets pods whose `helve.io/owner` label matches their own username, an `admin` gets all of them (each with its `owner` field populated). Pods for templates with a `secret_env_key` also carry a `credential: {env_key, value}` looked up from `deployment_secrets`, and pods for proxy-enabled templates carry a `proxy_path: "/proxy/<name>/"`.
 - `GET /ws` — WebSocket; sends a full snapshot on connect (same per-role filtering and credential enrichment as `GET /api/pods`), then `upsert`/`delete` events as pods change, filtered the same way per-connection
 - `GET /api/images` — JSON list of catalog entries from the `images` table (id, name, image, description)
 - `GET /api/templates` — JSON list of templates (any logged-in role — needed for the Launch tab's dropdown)
-- `POST /api/templates` / `PUT /api/templates/{id}` *(admin)* — create/update a template. Body is a `TemplateEntry` minus `id`: `{name, image, container_port, cpu_request, cpu_limit, memory_request, memory_limit, accelerator_type, accelerator_count, env, args, model, context_length, quantization, served_model_name, gpu_memory_utilization, dtype, volume_claim_name, volume_mount_path, volume_sub_path, notes, secret_env_key, proxy_enabled, strip_prefix, public_service, readiness_path}` — only `name`/`image` are required, everything else defaults to empty/`null`/`false`/`true`. `secret_env_key`, if set, is the env var name (e.g. `JUPYTER_TOKEN`) that Launch should auto-generate instead of showing as an editable field — a proxy-enabled template doesn't need one (RStudio has none). `strip_prefix` only matters when `proxy_enabled` is set (see "the reverse proxy" above). `public_service` is independent of `proxy_enabled` — set it to `false` either for a proxied app with no auth of its own (Aether's login becomes the only way in, e.g. RStudio), or for a plain internal-only service consumed from inside the cluster (e.g. an LLM engine other in-cluster tooling talks to directly, with no browser login to bypass and no proxy involved at all). `model`/`context_length`/`quantization`/`served_model_name`/`gpu_memory_utilization`/`dtype`/`volume_claim_name`/`volume_mount_path`/`volume_sub_path` are described under `POST /api/deployments` below — the template versions are just the pre-filled defaults; empty string (or `null` for `context_length`/`gpu_memory_utilization`) means unset, same convention as `cpu_request` and friends.
+- `POST /api/templates` / `PUT /api/templates/{id}` *(admin)* — create/update a template. Body is a `TemplateEntry` minus `id`: `{name, image, container_port, cpu_request, cpu_limit, memory_request, memory_limit, accelerator_type, accelerator_count, env, args, model, context_length, quantization, served_model_name, gpu_memory_utilization, dtype, volume_claim_name, volume_mount_path, volume_sub_path, notes, secret_env_key, proxy_enabled, strip_prefix, public_service, readiness_path}` — only `name`/`image` are required, everything else defaults to empty/`null`/`false`/`true`. `secret_env_key`, if set, is the env var name (e.g. `JUPYTER_TOKEN`) that Launch should auto-generate instead of showing as an editable field — a proxy-enabled template doesn't need one (RStudio has none). `strip_prefix` only matters when `proxy_enabled` is set (see "the reverse proxy" above). `public_service` is independent of `proxy_enabled` — set it to `false` either for a proxied app with no auth of its own (Helve's login becomes the only way in, e.g. RStudio), or for a plain internal-only service consumed from inside the cluster (e.g. an LLM engine other in-cluster tooling talks to directly, with no browser login to bypass and no proxy involved at all). `model`/`context_length`/`quantization`/`served_model_name`/`gpu_memory_utilization`/`dtype`/`volume_claim_name`/`volume_mount_path`/`volume_sub_path` are described under `POST /api/deployments` below — the template versions are just the pre-filled defaults; empty string (or `null` for `context_length`/`gpu_memory_utilization`) means unset, same convention as `cpu_request` and friends.
 - `DELETE /api/templates/{id}` *(admin)* — delete a template
-- `GET /api/pvcs` — every `PersistentVolumeClaim` already existing in the watched namespace, `{name, capacity}` (`capacity` `null` if not yet Bound). Any logged-in user, same visibility as the Images catalog. Backs the Launch/Templates forms' storage-mount fields — Aether never creates or deletes a PVC itself, only mounts one that's already there (see "vLLM/SGLang: model, context length, quantization, storage, and readiness" below).
-- `POST /api/deployments` — there's no `name` field: the backend generates one, `<username>-<instance type>-<6-char random suffix>`, truncating the instance-type segment as needed to stay within Kubernetes' 63-character name limit. "Instance type" is a slugified `template_name` when given, else a slug of `image`'s repository component (e.g. `nginx:alpine` → `nginx`, `jupyter/base-notebook` → `base-notebook`). The random suffix means a 409 from Kubernetes here would mean that exact suffix collided for you, which should essentially never happen. Every field below that echoes or embeds "the deployment's name" (`{{name}}` substitution, `proxy_path`, `service_name`) means this generated name. Creates a `Deployment` in the watched namespace (labeled `aether.io/owner: <your username>`), and if `container_port` is set, also a Service exposing it — `LoadBalancer` (public, external IP assigned by whatever your cluster's load-balancer implementation is) if `public_service` is true, `ClusterIP`-only otherwise. If the field is omitted this API defaults it to `true`; the Launch tab's own form, in contrast, now defaults its checkbox to off (see "Status & known limitations") — a raw API caller that omits the field still gets the old public-by-default behavior. Body: `{template_name, image, replicas, cpu_request, cpu_limit, memory_request, memory_limit, accelerator_type, accelerator_count, container_port, env, args, model, context_length, quantization, served_model_name, gpu_memory_utilization, dtype, readiness_path, volume_claim_name, volume_mount_path, volume_sub_path, generate_secret_for, enable_proxy, strip_prefix, public_service}` — everything except `image`/`replicas` is optional; `env` is `[[key, value], ...]` pairs (entries with an empty value are dropped, so an image's own default behavior — e.g. an auto-generated password logged at startup — still applies unless you set one); `args` is a list of container command-line arguments — `{{name}}`, `{{proxy_root_path}}`, and `{{accelerator_count}}` are always substituted (the last defaulting to `1` if unset). `{{proxy_root_path}}` is the URL prefix the app is served under, and exists so a template doesn't have to hardcode one: it resolves to `/` when per-deployment proxy origins are configured (the app owns a whole origin and sits at its root) and to `/proxy/<name>/` when they aren't. This is what JupyterLab's `--ServerApp.base_url` and RStudio's `www-root-path` should be set to; hardcoding `/proxy/<name>/` instead breaks the app on a per-deployment origin, and does so in a way that looks like the app itself is broken — RStudio 404s its own redirect, JupyterLab registers routes under a prefix no request carries. `{{model}}`, `{{context_length}}`, `{{quantization}}`, `{{served_model_name}}`, `{{gpu_memory_utilization}}`, and `{{dtype}}` are each substituted from the like-named field *if set* — if that field is unset, the whole `args` line containing the placeholder is dropped entirely rather than sending a broken `--flag=` with nothing after the `=`. `model` is just a plain string, whether it's a Hugging Face ID or a local path under `volume_mount_path`; `context_length` must be positive if set; `gpu_memory_utilization` must be in `(0.0, 1.0]` if set; `quantization`/`served_model_name`/`dtype` are free text. `readiness_path`, if set, attaches an HTTP `readinessProbe` to the container at that path against `container_port` (400 if `container_port` isn't also set) — see "vLLM/SGLang: model, context length, quantization, storage, and readiness" below. `volume_claim_name`, if set, mounts that existing `PersistentVolumeClaim` at `volume_mount_path` (both required together; 400 if no such claim exists), optionally scoped to `volume_sub_path` within it; `generate_secret_for`, if set to an env var name, generates a random value for it (overriding anything with that key in `env`) and stores it in `deployment_secrets`; `enable_proxy`, if `true`, requires `container_port` to be set (400 otherwise) and makes the app also reachable via `GET/POST/... /proxy/<name>/...`, with `strip_prefix` controlling how that route forwards paths (see "the reverse proxy" above); `public_service`, independent of `enable_proxy`, controls whether the Service is a public `LoadBalancer` or `ClusterIP`-only. Response adds `name` (the generated one), `service_name`/`container_port` (both `null` if no port was given), `secret_value` (the generated value, or `null`), `proxy_path` (`"/proxy/<name>/"` if `enable_proxy` was set, else `null`), and `public_service` (echoes the request, so the frontend knows whether to mention an external IP).
+- `GET /api/pvcs` — every `PersistentVolumeClaim` already existing in the watched namespace, `{name, capacity}` (`capacity` `null` if not yet Bound). Any logged-in user, same visibility as the Images catalog. Backs the Launch/Templates forms' storage-mount fields — Helve never creates or deletes a PVC itself, only mounts one that's already there (see "vLLM/SGLang: model, context length, quantization, storage, and readiness" below).
+- `POST /api/deployments` — there's no `name` field: the backend generates one, `<username>-<instance type>-<6-char random suffix>`, truncating the instance-type segment as needed to stay within Kubernetes' 63-character name limit. "Instance type" is a slugified `template_name` when given, else a slug of `image`'s repository component (e.g. `nginx:alpine` → `nginx`, `jupyter/base-notebook` → `base-notebook`). The random suffix means a 409 from Kubernetes here would mean that exact suffix collided for you, which should essentially never happen. Every field below that echoes or embeds "the deployment's name" (`{{name}}` substitution, `proxy_path`, `service_name`) means this generated name. Creates a `Deployment` in the watched namespace (labeled `helve.io/owner: <your username>`), and if `container_port` is set, also a Service exposing it — `LoadBalancer` (public, external IP assigned by whatever your cluster's load-balancer implementation is) if `public_service` is true, `ClusterIP`-only otherwise. If the field is omitted this API defaults it to `true`; the Launch tab's own form, in contrast, now defaults its checkbox to off (see "Status & known limitations") — a raw API caller that omits the field still gets the old public-by-default behavior. Body: `{template_name, image, replicas, cpu_request, cpu_limit, memory_request, memory_limit, accelerator_type, accelerator_count, container_port, env, args, model, context_length, quantization, served_model_name, gpu_memory_utilization, dtype, readiness_path, volume_claim_name, volume_mount_path, volume_sub_path, generate_secret_for, enable_proxy, strip_prefix, public_service}` — everything except `image`/`replicas` is optional; `env` is `[[key, value], ...]` pairs (entries with an empty value are dropped, so an image's own default behavior — e.g. an auto-generated password logged at startup — still applies unless you set one); `args` is a list of container command-line arguments — `{{name}}`, `{{proxy_root_path}}`, and `{{accelerator_count}}` are always substituted (the last defaulting to `1` if unset). `{{proxy_root_path}}` is the URL prefix the app is served under, and exists so a template doesn't have to hardcode one: it resolves to `/` when per-deployment proxy origins are configured (the app owns a whole origin and sits at its root) and to `/proxy/<name>/` when they aren't. This is what JupyterLab's `--ServerApp.base_url` and RStudio's `www-root-path` should be set to; hardcoding `/proxy/<name>/` instead breaks the app on a per-deployment origin, and does so in a way that looks like the app itself is broken — RStudio 404s its own redirect, JupyterLab registers routes under a prefix no request carries. `{{model}}`, `{{context_length}}`, `{{quantization}}`, `{{served_model_name}}`, `{{gpu_memory_utilization}}`, and `{{dtype}}` are each substituted from the like-named field *if set* — if that field is unset, the whole `args` line containing the placeholder is dropped entirely rather than sending a broken `--flag=` with nothing after the `=`. `model` is just a plain string, whether it's a Hugging Face ID or a local path under `volume_mount_path`; `context_length` must be positive if set; `gpu_memory_utilization` must be in `(0.0, 1.0]` if set; `quantization`/`served_model_name`/`dtype` are free text. `readiness_path`, if set, attaches an HTTP `readinessProbe` to the container at that path against `container_port` (400 if `container_port` isn't also set) — see "vLLM/SGLang: model, context length, quantization, storage, and readiness" below. `volume_claim_name`, if set, mounts that existing `PersistentVolumeClaim` at `volume_mount_path` (both required together; 400 if no such claim exists), optionally scoped to `volume_sub_path` within it; `generate_secret_for`, if set to an env var name, generates a random value for it (overriding anything with that key in `env`) and stores it in `deployment_secrets`; `enable_proxy`, if `true`, requires `container_port` to be set (400 otherwise) and makes the app also reachable via `GET/POST/... /proxy/<name>/...`, with `strip_prefix` controlling how that route forwards paths (see "the reverse proxy" above); `public_service`, independent of `enable_proxy`, controls whether the Service is a public `LoadBalancer` or `ClusterIP`-only. Response adds `name` (the generated one), `service_name`/`container_port` (both `null` if no port was given), `secret_value` (the generated value, or `null`), `proxy_path` (`"/proxy/<name>/"` if `enable_proxy` was set, else `null`), and `public_service` (echoes the request, so the frontend knows whether to mention an external IP).
 - `GET /api/deployments/{name}` — current editable state of a Deployment you own (or, for an admin, any Deployment): `{name, replicas, cpu_request, cpu_limit, memory_request, memory_limit, env, generated_secret_key}`. `env` excludes the auto-generated secret's entry, if any — its key is reported separately as `generated_secret_key` rather than its (regeneratable) value, since it's shown read-only rather than as an editable row. 403 if you don't own it, 404 if it doesn't exist. Backs the Pods tab's manage panel.
 - `PUT /api/deployments/{name}` — scales and/or updates resources/env on a Deployment you own (or, for an admin, any Deployment). Body: `{replicas, cpu_request, cpu_limit, memory_request, memory_limit, env}`. Image, container port, accelerator, and args are fixed at launch time — changing those is a delete + relaunch, not an edit. An existing auto-generated secret's env var is carried through untouched regardless of what's submitted in `env` — edits never regenerate or require resubmitting it, since a client may already be using that value. Same validation as create (quantities, env keys, non-negative replicas). Returns the same shape as `GET`.
 - `DELETE /api/deployments/{name}` — deletes a Deployment you own (or, for an admin, any Deployment), its Service if it has one, and its `deployment_secrets` row (if any) — the one place in the app that actually cleans up a generated credential rather than leaving it to outlive the deployment that used it. 403 if you don't own it.
 - `POST /api/deployments/{name}/restart` — bumps `kubectl.kubernetes.io/restartedAt` on the pod template to now, the same convention `kubectl rollout restart` uses, so the Deployment's existing rolling-update strategy rolls every pod over. No body, no response body. 403 if you don't own it.
 - `POST /api/deployments/{name}/rollback` — reverts the Deployment to its previous revision (image, resources, env, args — everything), read from the owning `ReplicaSet`'s revision history, same mechanism as `kubectl rollout undo`. No request body. 400 if there's no previous revision; 403 if you don't own it. Quota is re-checked the same way `PUT` is. Returns the same shape as `GET /api/deployments/{name}`.
-- `POST /api/deployments/{name}/regenerate-secret` — issues a fresh value for the Deployment's auto-generated credential, updates `deployment_secrets` and the live container's env, and restarts the pod (same mechanism as `restart` above) so a running pod is never left holding a value Aether itself no longer knows. No request body; response is `{secret_value}`. 400 if this Deployment has no auto-generated credential; 403 if you don't own it.
+- `POST /api/deployments/{name}/regenerate-secret` — issues a fresh value for the Deployment's auto-generated credential, updates `deployment_secrets` and the live container's env, and restarts the pod (same mechanism as `restart` above) so a running pod is never left holding a value Helve itself no longer knows. No request body; response is `{secret_value}`. 400 if this Deployment has no auto-generated credential; 403 if you don't own it.
 - `ANY /proxy/{deployment_name}`, `ANY /proxy/{deployment_name}/`, `ANY /proxy/{deployment_name}/{*rest}` — reverse-proxies into a proxy-enabled deployment's pod (`backend/src/proxy.rs`), injecting its generated credential (if any) as the appropriate auth header so there's no login prompt. The first two (bare path / trailing slash, no further segment) are what every "Open" link actually points at; the wildcard one handles everything else the app itself requests once loaded. 403 if you're not that deployment's owner (or an admin); 400 if the deployment isn't proxy-enabled; 502 if the connection to its pod fails or times out (5s). Handles WebSocket upgrades transparently (needed for JupyterLab's kernel connections). See "Ownership, auto-generated credentials, and the reverse proxy" below.
 - `GET /api/pods/{name}/logs?container=&tail_lines=&previous=` — plain-text container logs (`container` defaults to the pod's only container if it has one; `tail_lines` defaults to 500; `previous=true` gets the last terminated instance's logs, for a crashed container)
 - `GET /api/pods/{name}/events` — JSON list of Kubernetes Events involving that pod (`type_`, `reason`, `message`, `count`, `last_seen`), most recent first — note the apiserver's default Event TTL is short (commonly ~1h), so older pods often have none left
@@ -276,7 +276,7 @@ additionally require the `admin` role either way (403 otherwise).
 - `GET /api/quota/users` *(admin)* — every account's `{user_id, username, quota_override, used_cpu_millicores, used_memory_bytes, used_gpu_count}` — `quota_override` is `null` if that user has no override and is bound by the global default. Backs the Quotas admin tab's table.
 - `PUT /api/quota/users/{id}` *(admin)* — sets (or replaces) a user's quota override, same `{cpu_limit, memory_limit, gpu_limit}` shape as the global settings' limits. `DELETE /api/quota/users/{id}` *(admin)* clears it, reverting that user to the global default.
 - `GET /proxy-auth?deployment=&next=` — the app-origin half of the proxy handshake. Verifies the caller's session and that they may open `deployment`, then redirects to that deployment's own origin carrying a single-use token. 403 if you don't own it; redirects to the SPA if you aren't logged in (it's a link people follow, not an API call). Only meaningful when `PROXY_BASE_DOMAIN` is set.
-- `ANY <name>.<PROXY_BASE_DOMAIN>/*` — everything on a per-deployment proxy origin is forwarded to that deployment's pod, including paths like `/api/...` that would otherwise be Aether's own. `GET /__aether/auth` on that origin is the one exception: it redeems the token above and sets the origin's own `aether_proxy` cookie.
+- `ANY <name>.<PROXY_BASE_DOMAIN>/*` — everything on a per-deployment proxy origin is forwarded to that deployment's pod, including paths like `/api/...` that would otherwise be Helve's own. `GET /__helve/auth` on that origin is the one exception: it redeems the token above and sets the origin's own `helve_proxy` cookie.
 - `GET /healthz` — liveness, no auth. Always 200 while the process is serving; deliberately checks nothing else, since a liveness probe that depended on Postgres would restart a healthy app whenever the database hiccuped.
 - `GET /readyz` — readiness, no auth. 200 when Postgres answers, 503 otherwise (bounded at 2s, because an unreachable database makes the pool block rather than fail). Unlike liveness, this *should* fail — an instance that can't reach Postgres can't serve a useful request and should drop out of the Service's endpoints.
 - `GET /*` — serves the built frontend (`index.html`, JS, WASM, CSS)
@@ -326,7 +326,7 @@ CREATE TABLE templates (
     args TEXT[] NOT NULL DEFAULT '{}',  -- ["--model=...", ...]
     notes TEXT NOT NULL DEFAULT '',
     secret_env_key TEXT,                -- e.g. "JUPYTER_TOKEN"; NULL means no auto-generated secret
-    proxy_enabled BOOLEAN NOT NULL DEFAULT false,   -- also reachable via Aether's /proxy/<name>/
+    proxy_enabled BOOLEAN NOT NULL DEFAULT false,   -- also reachable via Helve's /proxy/<name>/
     strip_prefix BOOLEAN NOT NULL DEFAULT false,    -- see "the reverse proxy" below
     public_service BOOLEAN NOT NULL DEFAULT true,   -- LoadBalancer (true) vs ClusterIP-only (false)
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -405,7 +405,7 @@ can use:
 - **Storage mount** — mounts an *existing* `PersistentVolumeClaim` into the
   container, e.g. a shared model cache, so `model` above can be a local
   path instead of re-downloading from Hugging Face on every restart.
-  Aether never creates or deletes a PVC itself — one has to already exist
+  Helve never creates or deletes a PVC itself — one has to already exist
   in the namespace (provisioned out-of-band, the same way any PV/PVC pair
   is), and `GET /api/pvcs` just lists what's already there to fill a
   datalist. Set together: `volume_claim_name` + `volume_mount_path`
@@ -429,13 +429,13 @@ can use:
 None of this requires a StorageClass or dynamic provisioning — a
 statically-bound `PersistentVolume`/`PersistentVolumeClaim` pair (NFS-
 backed, or whatever your cluster already has) works the same as a
-dynamically-provisioned one from Aether's perspective, since it only ever
+dynamically-provisioned one from Helve's perspective, since it only ever
 references an existing claim by name. Provision the PVC once, by hand,
 then point any number of launches at it.
 
 ## Ownership, auto-generated credentials, and the reverse proxy
 
-Every `Deployment`/pod created via Launch is labeled `aether.io/owner:
+Every `Deployment`/pod created via Launch is labeled `helve.io/owner:
 <username>` (a Kubernetes label, kept separate from the `app: <name>`
 selector label so it can't interfere with Service routing). The Pods tab
 and its underlying REST/WebSocket endpoints filter on this label: a `user`
@@ -469,7 +469,7 @@ replaces the stored value. A row exists here for *any* proxy-enabled
 deployment, credential or not — see RStudio below for why.
 
 **JupyterLab and RStudio genuinely work like JupyterHub**: both templates
-are `proxy_enabled`, meaning they're also reachable via Aether's own
+are `proxy_enabled`, meaning they're also reachable via Helve's own
 `GET/POST/... /proxy/<name>/{*rest}` route (`backend/src/proxy.rs`, plus two
 bare-path variants registered alongside it in `main.rs` — every "Open" link
 points at the bare `/proxy/<name>/` with no trailing segment, which
@@ -482,7 +482,7 @@ matchit's `{*rest}` wildcard doesn't match on its own). The handler:
    `get` on `services`) — whether that Service is itself a public
    `LoadBalancer` or `ClusterIP`-only makes no difference here, both have a
    ClusterIP. This is the conventional in-cluster design, and it assumes
-   Aether itself is running **in-cluster** — a `ClusterIP` isn't routable
+   Helve itself is running **in-cluster** — a `ClusterIP` isn't routable
    from outside the cluster network, so this specific hop can't be
    exercised with the backend running locally against a remote cluster,
    unlike everything else in this app (see "Status & known limitations").
@@ -519,16 +519,16 @@ container try (and fail) to `exec` the flag itself as a program. Its
 template also sets `public_service = false` — the token-header injection
 above is the only auth the proxy adds, so, same as RStudio below, the pod
 gets a `ClusterIP`-only Service rather than a public `LoadBalancer`;
-otherwise anyone who obtained a raw pod IP could skip Aether's proxy (and
+otherwise anyone who obtained a raw pod IP could skip Helve's proxy (and
 its ownership check) and reach Jupyter directly with no token at all.
 
 **RStudio runs with its own authentication fully disabled** (`env:
-[["DISABLE_AUTH", "true"]]`) and relies entirely on Aether's login plus the
+[["DISABLE_AUTH", "true"]]`) and relies entirely on Helve's login plus the
 ownership check above — there's no credential to generate or inject at all,
 and no login prompt to skip, because RStudio simply never asks. This is
 only safe because its template also sets `public_service = false`: Launch
 creates a `ClusterIP`-only Service for it instead of a public
-`LoadBalancer`, so the *only* way to reach it is through Aether's own login
+`LoadBalancer`, so the *only* way to reach it is through Helve's own login
 followed by that ownership check — nothing on the network can hit it
 directly. Its `args` are a small shell wrapper (`rocker/rstudio`'s
 `ENTRYPOINT` is empty, so `args` alone becomes the whole command line):
@@ -545,7 +545,7 @@ vLLM is intentionally never proxied: its `VLLM_API_KEY` is meant for
 scripted API clients setting their own `Authorization: Bearer <key>`
 header, not a browser session — it already matches real
 bearer-token-via-header usage without needing a proxy in front of it, and
-forcing it through Aether's cookie-based login would only get in the way of
+forcing it through Helve's cookie-based login would only get in the way of
 automation.
 
 Each proxied HTTP request currently opens a fresh TCP connection and
@@ -557,7 +557,7 @@ future optimization, not a correctness issue.
 
 The Pods tab's detail panel (click any pod row) shows a **Manage** section
 for any pod that has a `deployment_name` — i.e. anything launched through
-Aether (or carrying an `app` label some other way). It lets you scale
+Helve (or carrying an `app` label some other way). It lets you scale
 replicas, adjust CPU/memory requests and limits, edit environment
 variables, restart, roll back to the previous revision, regenerate an
 auto-generated credential, and delete the Deployment (plus its Service, if
@@ -590,7 +590,7 @@ relaunch through the Launch tab, not an in-place edit.
   auto-generated credential to begin with.
 
 Authorization is enforced backend-side against the Deployment's own
-`aether.io/owner` label (`backend/src/deployments.rs::check_owner`), not
+`helve.io/owner` label (`backend/src/deployments.rs::check_owner`), not
 trusted from what the frontend happens to show: an admin can manage any
 Deployment, everyone else only their own. In practice a `user`-role account
 never even sees a pod it doesn't own to begin with (`visibility.rs`
@@ -624,7 +624,7 @@ their effective quota gets rejected with 400 and a message naming the
 exceeded dimension and the numbers involved. **Admins are exempt** —
 quotas exist to stop a `user` account from monopolizing shared capacity;
 an admin already has unrestricted cluster access via their own kubeconfig
-regardless of what Aether enforces.
+regardless of what Helve enforces.
 
 Quota is checked against resource **limits**, not requests — interactive
 workloads are bursty, so it's peak usage that risks starving other users,
@@ -634,7 +634,7 @@ all count toward the same limit) — simplest, and this cluster currently
 only has AMD GPUs anyway.
 
 Usage is summed from **Deployment specs** (`replicas × container limits`,
-grouped by the `aether.io/owner` label), not from observed pods. Reading
+grouped by the `helve.io/owner` label), not from observed pods. Reading
 pods is tempting, since the watcher already caches them, but it's wrong in
 both directions: pods don't exist until a second or two after a Deployment
 is created, so a burst of launches all measure a stale, empty cluster and
@@ -681,7 +681,7 @@ image is only accepted if it already appears in the Images catalog or as
 some Template's own `image` — regardless of whether the launch went
 through the Template dropdown or the "Custom" option, and regardless of
 which specific template (if any) `template_name` named, since the check
-is really "is this image already known to Aether" rather than "does it
+is really "is this image already known to Helve" rather than "does it
 match the template you picked." The Launch tab hides the "Custom" option
 and disables free-text editing of the Image field for non-admins while
 this is off; the backend enforces it either way (`POST /api/deployments`
@@ -689,15 +689,15 @@ this is off; the backend enforces it either way (`POST /api/deployments`
 nicety. Admins are exempt, same as quota limits — the setting exists to
 stop a `user` account launching arbitrary images, not to constrain
 someone who already has unrestricted cluster access via their own
-kubeconfig regardless of what Aether enforces.
+kubeconfig regardless of what Helve enforces.
 
 ## Per-deployment proxy origins
 
-A proxied app runs code Aether doesn't control — JupyterLab and RStudio run
+A proxied app runs code Helve doesn't control — JupyterLab and RStudio run
 arbitrary user code by design, and `enable_proxy` can be set on any image.
-Serving those apps from a path on Aether's own origin (`/proxy/<name>/`, the
+Serving those apps from a path on Helve's own origin (`/proxy/<name>/`, the
 original design) means their JavaScript is *same-origin* with the SPA and
-`/api/*`, so it can call Aether's API with the browsing user's session cookie
+`/api/*`, so it can call Helve's API with the browsing user's session cookie
 attached automatically. `HttpOnly` is no defence (the JS never reads the
 cookie — the browser just sends it) and neither is `SameSite=Lax` (same site).
 Because an admin can open anyone's proxied app, that let a `user` account
@@ -705,7 +705,7 @@ escalate to admin simply by getting theirs opened. This is the same reason
 JupyterHub ships per-user subdomains.
 
 Setting `PROXY_BASE_DOMAIN` (plus `APP_ORIGIN`) gives every deployment its own
-origin — `<name>.proxy.aether.example` — so the browser treats it as a
+origin — `<name>.proxy.helve.example` — so the browser treats it as a
 different site entirely. Requests to a proxy origin are dispatched by `Host`
 in a middleware sitting *outside* the app's router
 (`proxy::dispatch_by_host`), so they never reach `/api/*` or the SPA at all;
@@ -715,36 +715,36 @@ redirects to the new origin, so the hole closes rather than lingering beside
 the fix. Host matching accepts exactly one label in front of the base domain,
 matching what a wildcard TLS cert covers.
 
-Because Aether's session cookie is host-only, it is never sent to a proxy
+Because Helve's session cookie is host-only, it is never sent to a proxy
 origin — which is the point, but means that origin needs its own way to know
 who you are. Hence a small handshake, mirroring OAuth's shape:
 
 1. A request to `<name>.proxy…` with no proxy session redirects to
    `/proxy-auth` on the **app** origin — the only host that receives the
    session cookie.
-2. There, Aether verifies the session and that the caller may open this
+2. There, Helve verifies the session and that the caller may open this
    deployment (owner, or an admin), then mints a single-use token with a 30
    second lifetime and redirects back to the deployment's origin.
 3. That origin redeems the token (deleted as it's read, so a copy left in
    history or a `Referer` is already spent), checks it was minted for *this*
-   deployment, and sets its own `aether_proxy` cookie — host-only, so it
+   deployment, and sets its own `helve_proxy` cookie — host-only, so it
    belongs to that one subdomain and nothing else under the base domain.
 4. Later requests carry that cookie. The user is re-resolved from it on every
    request rather than trusted from the cookie alone, so deleting an account
    (or replacing a deployment with a same-named one owned by someone else)
    takes effect immediately.
 
-The `aether_proxy` cookie authorizes exactly one deployment and nothing else
-in Aether, so a pod capturing its own is no more powerful than it already was.
-Both it and `aether_session` are stripped from anything forwarded upstream.
+The `helve_proxy` cookie authorizes exactly one deployment and nothing else
+in Helve, so a pod capturing its own is no more powerful than it already was.
+Both it and `helve_session` are stripped from anything forwarded upstream.
 
 Note this also makes the **admin bypass safe again**: an admin can open a
 user's app for support, because that app is now cross-origin from `/api`.
 
 **Deploying it** needs a wildcard DNS record for `*.<PROXY_BASE_DOMAIN>` and a
 TLS cert covering both that wildcard and the app's own hostname, pointed at
-whatever fronts Aether. `APP_ORIGIN`'s scheme decides whether the
-`aether_proxy` cookie is marked `Secure`, so serve both over HTTPS.
+whatever fronts Helve. `APP_ORIGIN`'s scheme decides whether the
+`helve_proxy` cookie is marked `Secure`, so serve both over HTTPS.
 
 ## Per-user node placement
 
@@ -870,7 +870,7 @@ CREATE TABLE launch_log (
 ```
 
 - `POST /api/login` records the login's source IP (`ConnectInfo`, real since
-  Aether's own frontend sits directly behind its LoadBalancer with no proxy
+  Helve's own frontend sits directly behind its LoadBalancer with no proxy
   in front of itself — unrelated to the `/proxy/` routes above, which proxy
   *to* other apps) and `User-Agent` header into `session_log`.
 - `POST /api/deployments` records the full launch request into `launch_log`
@@ -892,8 +892,8 @@ via QEMU reliably crashes `rustc`, so build this on a native amd64 box for a
 single-platform image matching your own machine:
 
 ```
-docker build -t <registry>/aether/aether:latest .
-docker push <registry>/aether/aether:latest
+docker build -t <registry>/helve/helve:latest .
+docker push <registry>/helve/helve:latest
 ```
 
 `.github/workflows/release.yml` instead produces a genuinely multi-arch
@@ -910,8 +910,8 @@ Dockerfile needs no per-arch branching either way.
 
 ## Deploying to Kubernetes
 
-Use the Helm chart in `charts/aether/`, published as an OCI artifact on
-each tagged release — see "Quick start" above, and `charts/aether/README.md`
+Use the Helm chart in `charts/helve/`, published as an OCI artifact on
+each tagged release — see "Quick start" above, and `charts/helve/README.md`
 for the full values reference, the guards it enforces before rendering,
 and a worked cert-manager + Let's Encrypt example. Nothing about it is
 specific to any one cluster: the `ServiceAccount`/`Role`/`RoleBinding`,
@@ -926,13 +926,13 @@ else specifically). `database.deploy.enabled=true` deploys a bundled,
 evaluation-only single-replica Postgres instead, for trying this out
 without a database of your own on hand.
 
-Aether itself can run more than one replica (`replicaCount` in the
+Helve itself can run more than one replica (`replicaCount` in the
 chart) — session cookies, proxy handoff tokens, and quota enforcement all
 live in Postgres rather than in-process, so replicas don't need to agree
 with each other about anything. A rolling restart is zero-downtime even
 at the default of one replica: the app drains in-flight HTTP requests on
 `SIGTERM` instead of dropping them, and the chart's rollout strategy
-never drops below full capacity. See `charts/aether/README.md`, "High
+never drops below full capacity. See `charts/helve/README.md`, "High
 availability", for what this doesn't cover (already-open long-lived
 connections — a proxied app session, or the Pods tab's live-update
 WebSocket — still end when their pod does).
@@ -945,7 +945,7 @@ WebSocket — still end when their pod does).
   never stored or logged in plaintext.
 - Sessions are opaque random tokens (48 alphanumeric chars from the OS RNG)
   stored server-side in the `sessions` table, sent to the browser as an
-  `HttpOnly`, `SameSite=Lax` cookie (`aether_session`) so client-side JS
+  `HttpOnly`, `SameSite=Lax` cookie (`helve_session`) so client-side JS
   (including any XSS) can't read it, and cross-site requests can't ride on
   it. Sessions last 7 days and aren't refreshed on activity; logging out
   deletes the row server-side, not just the cookie.
@@ -1008,35 +1008,35 @@ IP directly over plain TCP like any other in-cluster client would.
   namespace, and (via Launch) can create a Service with a public-facing
   LoadBalancer IP — there's no admission control over what gets exposed.
 - Templates (Ollama/vLLM/SGLang/JupyterLab/RStudio) are unauthenticated *at
-  the app they launch* by default, unrelated to logging into Aether itself.
+  the app they launch* by default, unrelated to logging into Helve itself.
   Ollama and SGLang have no auto-generated credential (see "Ownership, auto-generated
   credentials, and the reverse proxy" above) — set your own token/password via the
   env var editor if the image supports one, otherwise it's either unauthenticated
   or gets a random value visible only in the pod's own logs. RStudio runs
   with its own auth *deliberately* disabled and no public Service at all —
-  Aether's login is the only gate. JupyterLab and vLLM get an auto-generated
+  Helve's login is the only gate. JupyterLab and vLLM get an auto-generated
   credential instead, stored **in plaintext** in the `deployment_secrets`
   table (no encryption at rest) and visible to the owning user and any admin
   via the Pods tab.
-- Pod ownership (`aether.io/owner` label) and the Pods-tab visibility
-  filtering it drives are enforced entirely in the Aether backend at read
+- Pod ownership (`helve.io/owner` label) and the Pods-tab visibility
+  filtering it drives are enforced entirely in the Helve backend at read
   time, not via Kubernetes RBAC or admission control — the label itself is
   just metadata anyone with direct `kubectl` access to the namespace can see
-  or edit. It restricts what Aether's UI/API surface shows a `user` account,
+  or edit. It restricts what Helve's UI/API surface shows a `user` account,
   not what's actually running in the cluster.
-- **The reverse proxy strips Aether's own credentials before forwarding.** A
-  proxied pod runs code Aether doesn't control — JupyterLab and RStudio run
+- **The reverse proxy strips Helve's own credentials before forwarding.** A
+  proxied pod runs code Helve doesn't control — JupyterLab and RStudio run
   arbitrary user code by design, and `enable_proxy` can be set on any image —
   so `backend/src/proxy.rs::forwarded_headers` removes the caller's
-  `aether_session` cookie and their `Authorization` header on the way in, and
-  drops any upstream `Set-Cookie` that would overwrite `aether_session` on the
+  `helve_session` cookie and their `Authorization` header on the way in, and
+  drops any upstream `Set-Cookie` that would overwrite `helve_session` on the
   way back out (which would otherwise let a hostile pod pin the caller's
   browser to a session of its choosing). Every *other* cookie is forwarded
   untouched, because proxied apps set and depend on their own (RStudio's
   session, JupyterLab's XSRF token). Unit-tested in that module.
 - **Each proxied deployment is served from its own origin** when
   `PROXY_BASE_DOMAIN` is set — see "Per-deployment proxy origins" below. This
-  is what stops a proxied app's JavaScript from calling Aether's own API as
+  is what stops a proxied app's JavaScript from calling Helve's own API as
   whoever is browsing it. **With it unset, that hole is open**: `/proxy/<name>/`
   then shares an origin with the SPA and `/api/*`, so a pod's JS can call the
   API with the browsing user's cookie attached automatically (`HttpOnly`
@@ -1215,11 +1215,11 @@ matter for what you do next:
   deployments — enforcement only ever blocks a *new* launch or edit from
   pushing usage over the limit, never reaches back to shrink or kill
   something already running.
-- **Quota usage only counts pods Aether can attribute to an owner.** A
+- **Quota usage only counts pods Helve can attribute to an owner.** A
   Deployment created some other way (raw `kubectl apply`, no
-  `aether.io/owner` label) doesn't count against anyone's usage and can't
+  `helve.io/owner` label) doesn't count against anyone's usage and can't
   be blocked by this mechanism at all — quotas only govern what's launched
-  through Aether itself.
+  through Helve itself.
 - **This is a scoped-down slice of `SPEC.md`, not the whole thing.** No
   ingress controller and no StorageClass exist in this cluster yet, so
   there's no Gateway layer and no persistent storage — launched apps
@@ -1263,36 +1263,36 @@ matter for what you do next:
   proxied cookie-auth flow would be more friction, not less. See "Ownership,
   auto-generated credentials, and the reverse proxy" above.
 - **RStudio's no-auth mode was verified as thoroughly as possible without
-  deploying Aether in-cluster.** Confirmed by hand against a real
+  deploying Helve in-cluster.** Confirmed by hand against a real
   `rocker/rstudio` container: `DISABLE_AUTH=true` + the `www-root-path`
   config line produce the expected redirect/cookie behavior when the
   correct `Host` header is forwarded (which the proxy does). What's *not*
-  confirmed is a real browser session completing that flow through Aether's
+  confirmed is a real browser session completing that flow through Helve's
   actual `/proxy/` route end to end — same ClusterIP-reachability limitation
   as JupyterLab's proxy path (see below), compounded by RStudio's own
   user-agent sniffing making command-line verification less conclusive than
   Puppeteer-based verification was for JupyterLab. Worth a real click-through
-  once Aether is deployed in-cluster, before relying on it for anything
+  once Helve is deployed in-cluster, before relying on it for anything
   sensitive.
 - **The reverse proxy opens a fresh TCP connection per HTTP request**, not a
   pooled/reused one — correctness over performance for this first pass. Fine
   for interactive single-user use; would need pooling before it'd hold up
   under heavier concurrent load.
-- **The reverse proxy assumes Aether itself runs in-cluster** — it connects
+- **The reverse proxy assumes Helve itself runs in-cluster** — it connects
   to a proxy-enabled deployment's Service via its `ClusterIP`, which isn't
   routable from outside the cluster network. This is the one code path in
   this app that can't be exercised with the backend running locally against
   a remote cluster (this project's usual local-dev pattern); testing it for
   real requires an actual in-cluster install (Helm chart above) — it was
   instead verified by curling a proxy-enabled
-  deployment's ClusterIP with the exact header Aether would send, from a
+  deployment's ClusterIP with the exact header Helve would send, from a
   throwaway pod inside the cluster, to confirm the target app accepts it
   correctly; the Rust-side HTTP/WebSocket-tunneling code was verified
   end-to-end in an earlier revision of this feature that used a different
   (pod-portforward-based) transport, then swapped in place — a small,
   well-contained change (only *how* a byte stream to the pod is obtained
   changed, not what's done with it), but that swap itself hasn't been
-  exercised with a real Aether instance actually running in-cluster yet.
+  exercised with a real Helve instance actually running in-cluster yet.
 - **Light theme covers chart-chrome/ink tokens only** — the header's "Light
   theme"/"Dark theme" toggle (persisted in `localStorage`, defaulting to
   dark) swaps `--page`/`--surface`/`--surface-raised`/`--border`/

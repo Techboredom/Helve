@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "aether.fullname" . }}
+  name: {{ include "helve.fullname" . }}
   labels:
-    {{- include "aether.labels" . | nindent 4 }}
+    {{- include "helve.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   selector:
-    {{- include "aether.selectorLabels" . | nindent 4 }}
+    {{- include "helve.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.service.port }}

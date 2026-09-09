@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "title": "aether",
+  "title": "helve",
   "type": "object",
   "properties": {
     "image": {
       "type": "object",
       "properties": {
-        "repository": { "type": "string", "description": "Container image repository, e.g. ghcr.io/<owner>/aether." },
+        "repository": { "type": "string", "description": "Container image repository, e.g. ghcr.io/<owner>/helve." },
         "tag": { "type": "string", "description": "Image tag. Defaults to .Chart.AppVersion when empty." },
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
         "pullSecrets": { "type": "array", "items": { "type": "string" }, "description": "Names of existing image-pull Secrets." }
@@ -14,7 +14,7 @@
     },
     "host": {
       "type": "string",
-      "description": "Required. The public hostname Aether is served from, e.g. aether.example.com. The chart refuses to render without this set."
+      "description": "Required. The public hostname Helve is served from, e.g. helve.example.com. The chart refuses to render without this set."
     },
     "replicaCount": {
       "type": "integer",
@@ -39,7 +39,7 @@
         },
         "allowSameOriginProxy": {
           "type": "boolean",
-          "description": "Explicit acknowledgment required to set proxy.separateOrigins=false, since that lets a proxied app's JavaScript call Aether's own API as whoever is browsing it."
+          "description": "Explicit acknowledgment required to set proxy.separateOrigins=false, since that lets a proxied app's JavaScript call Helve's own API as whoever is browsing it."
         }
       }
     },
@@ -83,7 +83,7 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Evaluation only. Deploys a single-replica, no-backups CloudNativePG Postgres alongside Aether. Requires the CloudNativePG operator already installed on the cluster. Do not use for anything you'd be upset to lose."
+              "description": "Evaluation only. Deploys a single-replica, no-backups CloudNativePG Postgres alongside Helve. Requires the CloudNativePG operator already installed on the cluster. Do not use for anything you'd be upset to lose."
             },
             "storage": {
               "type": "object",

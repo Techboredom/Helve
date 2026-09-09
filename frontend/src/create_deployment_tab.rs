@@ -265,10 +265,10 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
                 {move || {
                     let text = if proxy_enabled.get() {
                         if public_service.get() {
-                            Some("Also opens through Aether directly — no separate login needed via that route.")
+                            Some("Also opens through Helve directly — no separate login needed via that route.")
                         } else {
                             Some(
-                                "Opens through Aether only — no public IP, no login of its own; Aether's own login is the only way in.",
+                                "Opens through Helve only — no public IP, no login of its own; Helve's own login is the only way in.",
                             )
                         }
                     } else if !public_service.get() {
@@ -610,7 +610,7 @@ async fn submit(req: CreateDeploymentRequest) -> LaunchResult {
                 ));
             } else if created.proxy_path.is_some() {
                 msg.push_str(&format!(
-                    " Service \"{service}\" has no public IP — reachable only through Aether's own login."
+                    " Service \"{service}\" has no public IP — reachable only through Helve's own login."
                 ));
             } else {
                 msg.push_str(&format!(

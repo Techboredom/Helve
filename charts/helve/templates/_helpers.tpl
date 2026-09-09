@@ -2,11 +2,11 @@
 Standard chart name / fullname / labels, following the same pattern `helm
 create` scaffolds.
 */}}
-{{- define "aether.name" -}}
+{{- define "helve.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "aether.fullname" -}}
+{{- define "helve.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -19,31 +19,31 @@ create` scaffolds.
 {{- end -}}
 {{- end -}}
 
-{{- define "aether.chart" -}}
+{{- define "helve.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "aether.labels" -}}
-helm.sh/chart: {{ include "aether.chart" . }}
-{{ include "aether.selectorLabels" . }}
+{{- define "helve.labels" -}}
+helm.sh/chart: {{ include "helve.chart" . }}
+{{ include "helve.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{- define "aether.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "aether.name" . }}
+{{- define "helve.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "helve.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{- define "aether.serviceAccountName" -}}
+{{- define "helve.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
-{{- default (include "aether.fullname" .) .Values.serviceAccount.name -}}
+{{- default (include "helve.fullname" .) .Values.serviceAccount.name -}}
 {{- else -}}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "aether.image" -}}
+{{- define "helve.image" -}}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}
 {{- end -}}
@@ -53,7 +53,7 @@ Effective per-deployment-proxy base domain: proxy.baseDomain if set, else
 "proxy.<host>" — matching how backend/src/main.rs describes the same
 default relationship in its own --proxy-base-domain help text.
 */}}
-{{- define "aether.proxyBaseDomain" -}}
+{{- define "helve.proxyBaseDomain" -}}
 {{- if .Values.proxy.baseDomain -}}
 {{- .Values.proxy.baseDomain -}}
 {{- else -}}
@@ -66,7 +66,7 @@ The scheme APP_ORIGIN and the Ingress are served over. Only "https" turns
 on Secure session cookies (backend/src/state.rs::cookies_secure) — so this
 must track whatever the Ingress actually terminates.
 */}}
-{{- define "aether.scheme" -}}
+{{- define "helve.scheme" -}}
 {{- if and .Values.ingress.enabled .Values.ingress.tls.enabled -}}
 {{- "https" -}}
 {{- else -}}
@@ -74,24 +74,24 @@ must track whatever the Ingress actually terminates.
 {{- end -}}
 {{- end -}}
 
-{{- define "aether.appOrigin" -}}
-{{- printf "%s://%s" (include "aether.scheme" .) .Values.host -}}
+{{- define "helve.appOrigin" -}}
+{{- printf "%s://%s" (include "helve.scheme" .) .Values.host -}}
 {{- end -}}
 
 {{/*
 The Cluster name for the optional bundled CloudNativePG Postgres, and the
 Secret CNPG auto-generates for it (pattern "<Cluster name>-app").
 */}}
-{{- define "aether.dbClusterName" -}}
-{{- printf "%s-db" (include "aether.fullname" .) -}}
+{{- define "helve.dbClusterName" -}}
+{{- printf "%s-db" (include "helve.fullname" .) -}}
 {{- end -}}
 
-{{- define "aether.dbSecretName" -}}
-{{- printf "%s-app" (include "aether.dbClusterName" .) -}}
+{{- define "helve.dbSecretName" -}}
+{{- printf "%s-app" (include "helve.dbClusterName" .) -}}
 {{- end -}}
 
-{{- define "aether.adminBootstrapSecretName" -}}
-{{- printf "%s-admin-bootstrap" (include "aether.fullname" .) -}}
+{{- define "helve.adminBootstrapSecretName" -}}
+{{- printf "%s-admin-bootstrap" (include "helve.fullname" .) -}}
 {{- end -}}
 
 {{/*
@@ -100,14 +100,14 @@ quietly insecure rather than half-work. Included once, from a template
 that's always rendered (deployment.yaml), so `fail` actually halts the
 release rather than being dead code sitting in an unused named template.
 */}}
-{{- define "aether.validate" -}}
+{{- define "helve.validate" -}}
 
 {{- if not .Values.host -}}
-{{ fail "host is required — set the public hostname Aether is served from, e.g. --set host=aether.example.com" }}
+{{ fail "host is required — set the public hostname Helve is served from, e.g. --set host=helve.example.com" }}
 {{- end -}}
 
 {{- if and (not .Values.proxy.separateOrigins) (not .Values.proxy.allowSameOriginProxy) -}}
-{{ fail "proxy.separateOrigins=false serves every proxied deployment (JupyterLab, RStudio, ...) from a path on Aether's own origin, letting that deployment's JavaScript call Aether's API as whoever is browsing it. Set proxy.allowSameOriginProxy=true to accept that risk (e.g. for local development), or leave proxy.separateOrigins at its default of true." }}
+{{ fail "proxy.separateOrigins=false serves every proxied deployment (JupyterLab, RStudio, ...) from a path on Helve's own origin, letting that deployment's JavaScript call Helve's API as whoever is browsing it. Set proxy.allowSameOriginProxy=true to accept that risk (e.g. for local development), or leave proxy.separateOrigins at its default of true." }}
 {{- end -}}
 
 {{- if and (not .Values.database.existingSecret) (not .Values.database.deploy.enabled) -}}
@@ -120,7 +120,7 @@ release rather than being dead code sitting in an unused named template.
 
 {{- if and .Values.proxy.separateOrigins .Values.ingress.enabled .Values.ingress.tls.enabled (eq .Values.ingress.tls.mode "certManager") -}}
 {{- $host := .Values.host -}}
-{{- $base := include "aether.proxyBaseDomain" . -}}
+{{- $base := include "helve.proxyBaseDomain" . -}}
 {{- $hostSuffix := printf ".%s" $host -}}
 {{- if hasSuffix $hostSuffix $base -}}
 {{- $prefix := trimSuffix $hostSuffix $base -}}

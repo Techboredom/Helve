@@ -4,9 +4,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "aether.fullname" . }}
+  name: {{ include "helve.fullname" . }}
   labels:
-    {{- include "aether.labels" . | nindent 4 }}
+    {{- include "helve.labels" . | nindent 4 }}
 rules:
   # Pods tab: read-only, to watch and display the running pods.
   - apiGroups: [""]
@@ -44,9 +44,9 @@ rules:
   # /api/pvcs (any logged-in user, matches the Images catalog's visibility
   # level); `get` confirms a claim named in a launch request actually
   # exists before creating the Deployment, so a typo fails fast with a
-  # clear 400 instead of leaving the pod stuck Pending. Read-only — Aether
+  # clear 400 instead of leaving the pod stuck Pending. Read-only — Helve
   # never creates or deletes a PersistentVolumeClaim itself; one is always
-  # provisioned out-of-band first (see charts/aether/README.md's storage
+  # provisioned out-of-band first (see charts/helve/README.md's storage
   # notes).
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
@@ -55,7 +55,7 @@ rules:
   # immediately before the last edit and copies its pod template back onto
   # the Deployment — the same thing `kubectl rollout undo` does, using the
   # revision history Kubernetes already keeps for exactly this. Read-only:
-  # Aether never creates/deletes a ReplicaSet directly, only the Deployment
+  # Helve never creates/deletes a ReplicaSet directly, only the Deployment
   # that owns them.
   - apiGroups: ["apps"]
     resources: ["replicasets"]
@@ -64,15 +64,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "aether.fullname" . }}
+  name: {{ include "helve.fullname" . }}
   labels:
-    {{- include "aether.labels" . | nindent 4 }}
+    {{- include "helve.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "aether.serviceAccountName" . }}
+    name: {{ include "helve.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 roleRef:
   kind: Role
-  name: {{ include "aether.fullname" . }}
+  name: {{ include "helve.fullname" . }}
   apiGroup: rbac.authorization.k8s.io
 {{- end }}

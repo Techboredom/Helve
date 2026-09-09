@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-09
+
+The project is renamed **Aether -> Helve**. Entries below this one still say
+Aether because that is what shipped at the time; they are left alone rather
+than rewritten.
+
+### Changed
+
+- **Everything user-facing is now Helve**: the chart is `charts/helve` and
+  publishes to `oci://ghcr.io/techboredom/charts/helve`, the image is
+  `ghcr.io/techboredom/helve`, and the UI, README and Helm output follow.
+
+- **Breaking, and deliberately without compatibility shims** — this is a 0.x
+  release with one known deployment, and carrying dual-read fallbacks for a
+  one-time rename would leave permanent complexity behind:
+
+  | Was | Is | Effect on upgrade |
+  |---|---|---|
+  | `aether_session` cookie | `helve_session` | Everyone is logged out once |
+  | `aether_proxy` cookie | `helve_proxy` | Proxy sessions re-handshake |
+  | `aether.io/owner` label | `helve.io/owner` | **Workloads launched by 0.3.x become invisible to their owners** |
+  | `aether-theme` in localStorage | `helve-theme` | Theme choice resets to default |
+  | chart name `aether` | `helve` | Helm release names are immutable; this is an uninstall and reinstall |
+  | default TLS secret `aether-tls` | `helve-tls` | cert-manager issues into the new name |
+
+  Relabel anything already running rather than losing it:
+
+  ```console
+  kubectl get deploy,svc -n <ns> -l aether.io/owner \
+    -o name | xargs -I{} sh -c \
+    'kubectl label {} -n <ns> helve.io/owner=$(kubectl get {} -n <ns> \
+       -o jsonpath="{.metadata.labels.aether\\.io/owner}") --overwrite'
+  ```
+
+- The Forgejo secret the tag-bump step reads is `HELVE_DEPLOY_TOKEN`, not
+  `AETHER_DEPLOY_TOKEN`. It has to be recreated under the new name or that
+  workflow fails at the clone.
+
+### Added
+
+- `0021_rename_notes_to_helve.sql` updates the two seeded template `notes`
+  that name the product in text an admin reads. Written as a new migration
+  rather than an edit to 0006/0007: sqlx checksums applied migrations, so
+  rewriting one that has already run makes the binary refuse to start with a
+  VersionMismatch. Each `UPDATE` is scoped to the exact string those
+  migrations wrote, so an admin who has edited the notes keeps their version.
+
 ## [0.3.1] - 2026-09-07
 
 ### Added
@@ -255,7 +302,8 @@ own cluster.
   section still listed it as missing, contradicting the security-notes
   section describing the throttle).
 
-[Unreleased]: https://github.com/Techboredom/Aether/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Techboredom/Helve/releases/tag/v0.4.0
 [0.3.1]: https://github.com/Techboredom/Aether/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Techboredom/Aether/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Techboredom/Aether/releases/tag/v0.2.0

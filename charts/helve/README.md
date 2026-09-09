@@ -1,4 +1,4 @@
-# aether
+# helve
 
 A web app for managing compute environments and AI engines on a single
 Kubernetes namespace — launch JupyterLab/RStudio environments or LLM
@@ -20,7 +20,7 @@ inference engines (Ollama, vLLM, SGLang) with a few clicks, behind a login.
   `proxy.separateOrigins` is true: HTTP-01 cannot issue a certificate for
   a wildcard name (`*.<proxy.baseDomain>`), and that will be the first
   thing a public-internet install hits.
-- A Postgres database Aether can run its own migrations against
+- A Postgres database Helve can run its own migrations against
   (`database.existingSecret`), or the
   [CloudNativePG](https://cloudnative-pg.io) operator installed if you'd
   rather use `database.deploy.enabled=true` for evaluation.
@@ -28,10 +28,10 @@ inference engines (Ollama, vLLM, SGLang) with a few clicks, behind a login.
 ## Quick start
 
 ```console
-helm install aether oci://ghcr.io/techboredom/charts/aether \
-  --namespace aether --create-namespace \
-  --set host=aether.example.com \
-  --set database.existingSecret=aether-db-app \
+helm install helve oci://ghcr.io/techboredom/charts/helve \
+  --namespace helve --create-namespace \
+  --set host=helve.example.com \
+  --set database.existingSecret=helve-db-app \
   --set ingress.tls.issuerRef.name=letsencrypt \
   --set adminBootstrap.password=<a-temporary-password>
 ```
@@ -44,9 +44,9 @@ does.
 ## Evaluating without your own Postgres or cert-manager
 
 ```console
-helm install aether oci://ghcr.io/techboredom/charts/aether \
-  --namespace aether --create-namespace \
-  --set host=aether.example.test \
+helm install helve oci://ghcr.io/techboredom/charts/helve \
+  --namespace helve --create-namespace \
+  --set host=helve.example.test \
   --set database.deploy.enabled=true \
   --set ingress.tls.enabled=false \
   --set adminBootstrap.password=<a-temporary-password>
@@ -59,7 +59,7 @@ startup that session cookies can't be marked `Secure` as a result.
 
 ## A worked cert-manager + Let's Encrypt example
 
-Aether's wildcard proxy origin (`*.<proxy.baseDomain>`) means Let's
+Helve's wildcard proxy origin (`*.<proxy.baseDomain>`) means Let's
 Encrypt's HTTP-01 challenge won't work — you need a DNS-01 solver, which
 means a `ClusterIssuer` configured for your DNS provider's API. For
 example, with Cloudflare:
@@ -96,11 +96,11 @@ and their required credentials.
 
 | Key | Default | Description |
 |---|---|---|
-| `image.repository` | `ghcr.io/techboredom/aether` | Container image repository. |
+| `image.repository` | `ghcr.io/techboredom/helve` | Container image repository. |
 | `image.tag` | `""` | Image tag; defaults to `.Chart.AppVersion`. |
 | `image.pullPolicy` | `IfNotPresent` | |
 | `image.pullSecrets` | `[]` | Names of existing image-pull Secrets. |
-| `host` | `""` | **Required.** Public hostname Aether is served from. |
+| `host` | `""` | **Required.** Public hostname Helve is served from. |
 | `replicaCount` | `1` | Safe to raise — see "High availability" below. |
 | `terminationGracePeriodSeconds` | `30` | Must exceed the app's own post-`SIGTERM` drain wait (~5s) plus real request completion time. |
 | `proxy.baseDomain` | `""` | Base domain for per-deployment proxy origins; defaults to `proxy.<host>`. |
@@ -111,7 +111,7 @@ and their required credentials.
 | `ingress.annotations` | `{}` | |
 | `ingress.tls.enabled` | `true` | |
 | `ingress.tls.mode` | `certManager` | `certManager`, `existingSecret`, or `none`. |
-| `ingress.tls.secretName` | `aether-tls` | |
+| `ingress.tls.secretName` | `helve-tls` | |
 | `ingress.tls.issuerRef.name` | `""` | **Required when `mode=certManager`.** |
 | `ingress.tls.issuerRef.kind` | `ClusterIssuer` | |
 | `database.existingSecret` | `""` | Secret holding a Postgres connection string. Either this or `database.deploy.enabled` is required. |
@@ -173,7 +173,7 @@ backend's shutdown handling can paper over.
 ## Verifying an install
 
 ```console
-helm test aether -n aether
+helm test helve -n helve
 ```
 
 Curls `/readyz` (unauthenticated, checks Postgres connectivity) through

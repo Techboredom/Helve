@@ -1,10 +1,10 @@
-{{- $_ := include "aether.validate" . -}}
+{{- $_ := include "helve.validate" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "aether.fullname" . }}
+  name: {{ include "helve.fullname" . }}
   labels:
-    {{- include "aether.labels" . | nindent 4 }}
+    {{- include "helve.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   # Zero-downtime by default even at replicaCount 1: a new, ready pod comes
@@ -21,13 +21,13 @@ spec:
       maxSurge: 1
   selector:
     matchLabels:
-      {{- include "aether.selectorLabels" . | nindent 6 }}
+      {{- include "helve.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "aether.selectorLabels" . | nindent 8 }}
+        {{- include "helve.selectorLabels" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "aether.serviceAccountName" . }}
+      serviceAccountName: {{ include "helve.serviceAccountName" . }}
       # Kubernetes removes a Terminating pod from Service endpoints
       # asynchronously; the app itself waits out that window before it
       # stops accepting new connections (see shutdown_signal in
@@ -58,8 +58,8 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: aether
-          image: {{ include "aether.image" . }}
+        - name: helve
+          image: {{ include "helve.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -74,7 +74,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   {{- if .Values.database.deploy.enabled }}
-                  name: {{ include "aether.dbSecretName" . }}
+                  name: {{ include "helve.dbSecretName" . }}
                   key: uri
                   {{- else }}
                   name: {{ .Values.database.existingSecret }}
@@ -84,7 +84,7 @@ spec:
             # allows session cookies to be marked Secure, so this must match
             # what users actually type — including https.
             - name: APP_ORIGIN
-              value: {{ include "aether.appOrigin" . | quote }}
+              value: {{ include "helve.appOrigin" . | quote }}
             {{- if .Values.proxy.separateOrigins }}
             # Serves each proxied deployment from its own origin,
             # <name>.<baseDomain>, instead of from a path on this app's
@@ -93,7 +93,7 @@ spec:
             # it. Needs the wildcard DNS record (and, with cert-manager
             # TLS, the matching wildcard certificate).
             - name: PROXY_BASE_DOMAIN
-              value: {{ include "aether.proxyBaseDomain" . | quote }}
+              value: {{ include "helve.proxyBaseDomain" . | quote }}
             {{- end }}
             # Creates the initial `admin` account if the users table is
             # empty, and is ignored once any user exists. `optional: true`
@@ -104,7 +104,7 @@ spec:
             - name: ADMIN_BOOTSTRAP_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (include "aether.adminBootstrapSecretName" .) .Values.adminBootstrap.existingSecret }}
+                  name: {{ default (include "helve.adminBootstrapSecretName" .) .Values.adminBootstrap.existingSecret }}
                   key: password
                   optional: true
             {{- end }}

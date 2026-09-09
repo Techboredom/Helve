@@ -2,19 +2,19 @@
 //! pod, injecting its auto-generated credential (if any) so there's no login
 //! prompt — the "JupyterHub-style" part of the auto-generated-credentials
 //! feature. Some proxied apps (RStudio run with `DISABLE_AUTH=true`) have no
-//! credential at all; for those, Aether's own ownership check below is the
+//! credential at all; for those, Helve's own ownership check below is the
 //! *only* gate, so their template must also set `public_service = false`
 //! (see `deployments.rs`) so nothing can reach them directly.
 //!
 //! Reaches the pod via its `Service`'s in-cluster `ClusterIP` (whether that
 //! Service is itself a public `LoadBalancer` or a `ClusterIP`-only one makes
 //! no difference here — both have a `ClusterIP`). This is the conventional
-//! in-cluster design and assumes Aether itself runs in-cluster in
+//! in-cluster design and assumes Helve itself runs in-cluster in
 //! production; it does **not** work with the backend running locally
 //! against a remote cluster, since a `ClusterIP` isn't routable from outside
 //! the cluster network — unlike the rest of this app, this one code path
 //! can't be exercised from a local dev machine without actually deploying
-//! Aether into the cluster.
+//! Helve into the cluster.
 //!
 //! Only templates with `proxy_enabled` (JupyterLab and RStudio — see
 //! `backend/migrations/0005_add_proxy_support.sql` and
@@ -27,8 +27,8 @@
 //! * With `PROXY_BASE_DOMAIN` set (how this should be deployed), each
 //!   deployment gets its **own origin**, `<name>.<base domain>`, dispatched
 //!   by `Host` in [`dispatch_by_host`] before the app's router ever sees the
-//!   request. A proxied app is then a different origin from Aether, so its
-//!   JavaScript can't call `/api/*` as whoever is browsing it. Since Aether's
+//!   request. A proxied app is then a different origin from Helve, so its
+//!   JavaScript can't call `/api/*` as whoever is browsing it. Since Helve's
 //!   host-only session cookie doesn't reach that origin either, it earns its
 //!   own via the handshake in [`start_proxy_auth`] / `redeem_auth_token`.
 //!   The legacy path below just redirects here.
@@ -69,15 +69,15 @@ struct ProxyTarget {
 
 /// Cookie granting access to exactly one deployment, set host-only on that
 /// deployment's own proxy origin. Deliberately separate from
-/// `aether_session`: it authorizes nothing but this one proxied app, so a
+/// `helve_session`: it authorizes nothing but this one proxied app, so a
 /// pod that manages to capture its own is no more powerful than it already
 /// was.
-pub const PROXY_COOKIE: &str = "aether_proxy";
+pub const PROXY_COOKIE: &str = "helve_proxy";
 
 /// Where a proxy origin redeems the one-time token minted on the app origin.
-/// Under `/__aether/` to keep it clear of any path a proxied app might
+/// Under `/__helve/` to keep it clear of any path a proxied app might
 /// itself serve.
-const AUTH_CALLBACK_PATH: &str = "/__aether/auth";
+const AUTH_CALLBACK_PATH: &str = "/__helve/auth";
 
 /// The handoff token is used immediately by a redirect, so it only has to
 /// survive one round trip — short enough that a copy left in history or a
@@ -127,7 +127,7 @@ async fn serve_proxy_origin(state: AppState, deployment: String, req: Request) -
 }
 
 /// Sends an unauthenticated proxy origin back to the app origin, which is
-/// the only host the caller's `aether_session` cookie is ever sent to and so
+/// the only host the caller's `helve_session` cookie is ever sent to and so
 /// the only place their identity (and ownership of this deployment) can be
 /// established.
 fn start_auth_redirect(state: &AppState, deployment: &str, req: &Request) -> Response {
@@ -208,7 +208,7 @@ struct AuthCallbackQuery {
     next: Option<String>,
 }
 
-/// `GET /__aether/auth` on a **proxy** origin: redeems the one-time token and
+/// `GET /__helve/auth` on a **proxy** origin: redeems the one-time token and
 /// exchanges it for a cookie scoped to this host and this deployment alone.
 async fn redeem_auth_token(state: &AppState, deployment: &str, raw_query: &str) -> Result<Response, ApiError> {
     let query: AuthCallbackQuery = serde_urlencoded::from_str(raw_query)
@@ -225,7 +225,7 @@ async fn redeem_auth_token(state: &AppState, deployment: &str, raw_query: &str) 
     .await?;
 
     let Some((token_deployment, user_id)) = row else {
-        return Err(ApiError::Forbidden("this login link has expired — reopen the app from Aether".to_string()));
+        return Err(ApiError::Forbidden("this login link has expired — reopen the app from Helve".to_string()));
     };
     // A token minted for one deployment must not open another, even though
     // both are served by this same process.
@@ -496,16 +496,16 @@ async fn proxy_request(
 }
 
 /// The header set forwarded to the pod: everything the client sent, minus
-/// hop-by-hop headers, minus the two that would leak the caller's Aether
+/// hop-by-hop headers, minus the two that would leak the caller's Helve
 /// identity (their session cookie and their own `Authorization`), plus
-/// whatever credential Aether manages for this deployment.
+/// whatever credential Helve manages for this deployment.
 fn forwarded_headers(inbound: &http::HeaderMap, is_upgrade: bool, credential: Option<&str>) -> http::HeaderMap {
     let mut out = http::HeaderMap::new();
     for (name, value) in inbound.iter() {
         if is_hop_by_hop(name, is_upgrade) {
             continue;
         }
-        // The caller's own Authorization never goes upstream — Aether injects
+        // The caller's own Authorization never goes upstream — Helve injects
         // whatever credential it manages for this deployment below, and
         // forwarding the client's too would send the pod two conflicting
         // Authorization headers.
@@ -513,7 +513,7 @@ fn forwarded_headers(inbound: &http::HeaderMap, is_upgrade: bool, credential: Op
             continue;
         }
         if name == http::header::COOKIE {
-            // Everything except Aether's own session cookie is forwarded:
+            // Everything except Helve's own session cookie is forwarded:
             // proxied apps set and depend on their own cookies (RStudio's
             // session, JupyterLab's XSRF token), and those come back to us
             // on this same origin.
@@ -535,20 +535,20 @@ fn forwarded_headers(inbound: &http::HeaderMap, is_upgrade: bool, credential: Op
     out
 }
 
-/// Cookies belonging to Aether itself, never forwarded to a pod: the app
-/// session (which would hand over the caller's whole Aether identity) and
+/// Cookies belonging to Helve itself, never forwarded to a pod: the app
+/// session (which would hand over the caller's whole Helve identity) and
 /// the proxy-origin session (which the pod has no use for, and which would
 /// otherwise let it re-authenticate as its own visitor).
-const AETHER_COOKIES: &[&str] = &[SESSION_COOKIE, PROXY_COOKIE];
+const HELVE_COOKIES: &[&str] = &[SESSION_COOKIE, PROXY_COOKIE];
 
-/// Removes Aether's own cookies from a `Cookie` header on its way to a
+/// Removes Helve's own cookies from a `Cookie` header on its way to a
 /// proxied pod, keeping every other cookie intact. Returns `None` when
 /// nothing is left to forward.
 ///
-/// A proxied pod runs code Aether doesn't control — JupyterLab and RStudio
+/// A proxied pod runs code Helve doesn't control — JupyterLab and RStudio
 /// run arbitrary user code by design, and `enable_proxy` can be set on any
 /// image — so handing it the caller's session cookie would hand it the
-/// caller's Aether identity. That matters most for an admin, who can open
+/// caller's Helve identity. That matters most for an admin, who can open
 /// *anyone's* proxied app: without this, opening a hostile deployment would
 /// leak an admin session token to whoever launched it.
 fn strip_session_cookie(header: &str) -> Option<String> {
@@ -556,15 +556,15 @@ fn strip_session_cookie(header: &str) -> Option<String> {
         .split(';')
         .map(str::trim)
         .filter(|pair| !pair.is_empty())
-        .filter(|pair| !AETHER_COOKIES.contains(&cookie_name(pair)))
+        .filter(|pair| !HELVE_COOKIES.contains(&cookie_name(pair)))
         .collect();
     (!kept.is_empty()).then(|| kept.join("; "))
 }
 
-/// Drops any `Set-Cookie` from a proxied pod that would overwrite Aether's
+/// Drops any `Set-Cookie` from a proxied pod that would overwrite Helve's
 /// own session cookie — otherwise a hostile pod could pin the caller's
 /// browser to a session of its choosing (session fixation), since its
-/// responses come back on Aether's own origin.
+/// responses come back on Helve's own origin.
 fn drop_session_set_cookie(headers: &mut http::HeaderMap) {
     if !headers.contains_key(http::header::SET_COOKIE) {
         return;
@@ -572,7 +572,7 @@ fn drop_session_set_cookie(headers: &mut http::HeaderMap) {
     let kept: Vec<http::HeaderValue> = headers
         .get_all(http::header::SET_COOKIE)
         .iter()
-        .filter(|value| value.to_str().map(|v| !AETHER_COOKIES.contains(&cookie_name(v))).unwrap_or(true))
+        .filter(|value| value.to_str().map(|v| !HELVE_COOKIES.contains(&cookie_name(v))).unwrap_or(true))
         .cloned()
         .collect();
     headers.remove(http::header::SET_COOKIE);
@@ -633,7 +633,7 @@ mod tests {
     /// when an admin clicks "Open" on someone else's proxied deployment.
     fn browser_headers(cookie: &str) -> http::HeaderMap {
         let mut headers = http::HeaderMap::new();
-        headers.insert(http::header::HOST, "aether.example".parse().unwrap());
+        headers.insert(http::header::HOST, "helve.example".parse().unwrap());
         headers.insert(http::header::USER_AGENT, "Mozilla/5.0".parse().unwrap());
         headers.insert(http::header::COOKIE, cookie.parse().unwrap());
         headers
@@ -641,21 +641,21 @@ mod tests {
 
     #[test]
     fn session_cookie_never_reaches_the_pod() {
-        // The whole point of the fix: a pod runs code Aether doesn't control,
+        // The whole point of the fix: a pod runs code Helve doesn't control,
         // so an admin opening a hostile deployment must not hand it their
         // session token.
-        let inbound = browser_headers("aether_session=ADMIN_TOKEN; _xsrf=abc");
+        let inbound = browser_headers("helve_session=ADMIN_TOKEN; _xsrf=abc");
         let out = forwarded_headers(&inbound, false, None);
 
         let cookie = out.get(http::header::COOKIE).unwrap().to_str().unwrap();
         assert!(!cookie.contains("ADMIN_TOKEN"), "session token leaked to pod: {cookie}");
-        assert!(!cookie.contains("aether_session"));
+        assert!(!cookie.contains("helve_session"));
         assert_eq!(cookie, "_xsrf=abc");
     }
 
     #[test]
     fn cookie_header_omitted_when_only_the_session_cookie_was_sent() {
-        let inbound = browser_headers("aether_session=ADMIN_TOKEN");
+        let inbound = browser_headers("helve_session=ADMIN_TOKEN");
         let out = forwarded_headers(&inbound, false, None);
         assert!(!out.contains_key(http::header::COOKIE));
         // Unrelated headers still get through.
@@ -663,8 +663,8 @@ mod tests {
     }
 
     #[test]
-    fn callers_authorization_is_replaced_by_aethers_own_credential() {
-        let mut inbound = browser_headers("aether_session=ADMIN_TOKEN");
+    fn callers_authorization_is_replaced_by_helves_own_credential() {
+        let mut inbound = browser_headers("helve_session=ADMIN_TOKEN");
         inbound.insert(http::header::AUTHORIZATION, "Bearer CALLER".parse().unwrap());
 
         let out = forwarded_headers(&inbound, false, Some("token GENERATED"));
@@ -703,7 +703,7 @@ mod tests {
     #[test]
     fn next_path_rejects_anything_that_leaves_this_origin() {
         // An open redirect here would let a crafted "Open" link bounce a
-        // logged-in user to an attacker's site straight from Aether.
+        // logged-in user to an attacker's site straight from Helve.
         assert_eq!(safe_next_path("/lab/tree?a=1"), "/lab/tree?a=1");
         assert_eq!(safe_next_path("//evil.example/path"), "/");
         assert_eq!(safe_next_path("https://evil.example"), "/");
@@ -723,28 +723,28 @@ mod tests {
 
     #[test]
     fn reads_one_cookie_out_of_a_header() {
-        assert_eq!(cookie_value("a=1; aether_proxy=TOK; b=2", PROXY_COOKIE), Some("TOK".to_string()));
-        assert_eq!(cookie_value("aether_proxy=TOK", PROXY_COOKIE), Some("TOK".to_string()));
+        assert_eq!(cookie_value("a=1; helve_proxy=TOK; b=2", PROXY_COOKIE), Some("TOK".to_string()));
+        assert_eq!(cookie_value("helve_proxy=TOK", PROXY_COOKIE), Some("TOK".to_string()));
         assert_eq!(cookie_value("a=1; b=2", PROXY_COOKIE), None);
         // Must not be fooled by a name that merely contains the real one.
-        assert_eq!(cookie_value("not_aether_proxy=NOPE", PROXY_COOKIE), None);
+        assert_eq!(cookie_value("not_helve_proxy=NOPE", PROXY_COOKIE), None);
     }
 
     #[test]
     fn proxy_origin_cookie_is_also_kept_from_the_pod() {
         // The pod has no use for it, and it should not be able to replay its
         // own visitor's proxy session.
-        let inbound = browser_headers("aether_session=S; aether_proxy=P; keep=1");
+        let inbound = browser_headers("helve_session=S; helve_proxy=P; keep=1");
         let out = forwarded_headers(&inbound, false, None);
         assert_eq!(out.get(http::header::COOKIE).unwrap(), "keep=1");
     }
 
     #[test]
-    fn strips_only_aethers_own_cookie() {
+    fn strips_only_helves_own_cookie() {
         // The pod still needs its own cookies (RStudio's session, JupyterLab's
-        // XSRF token) — only Aether's session may not cross this boundary.
+        // XSRF token) — only Helve's session may not cross this boundary.
         assert_eq!(
-            strip_session_cookie("csrftoken=abc; aether_session=SECRET; _xsrf=def"),
+            strip_session_cookie("csrftoken=abc; helve_session=SECRET; _xsrf=def"),
             Some("csrftoken=abc; _xsrf=def".to_string())
         );
     }
@@ -752,9 +752,9 @@ mod tests {
     #[test]
     fn strips_session_cookie_in_any_position() {
         for header in [
-            "aether_session=SECRET; keep=1",
-            "keep=1; aether_session=SECRET",
-            "  aether_session=SECRET  ;  keep=1  ",
+            "helve_session=SECRET; keep=1",
+            "keep=1; helve_session=SECRET",
+            "  helve_session=SECRET  ;  keep=1  ",
         ] {
             assert_eq!(strip_session_cookie(header), Some("keep=1".to_string()), "header: {header}");
         }
@@ -762,7 +762,7 @@ mod tests {
 
     #[test]
     fn drops_header_entirely_when_only_session_cookie_present() {
-        assert_eq!(strip_session_cookie("aether_session=SECRET"), None);
+        assert_eq!(strip_session_cookie("helve_session=SECRET"), None);
         assert_eq!(strip_session_cookie(""), None);
     }
 
@@ -775,10 +775,10 @@ mod tests {
     fn does_not_match_on_name_substrings() {
         // Guards against a prefix/contains-style check letting the real
         // cookie through, or eating an unrelated one.
-        let header = "not_aether_session=keep; aether_session_x=keep2; aether_session=SECRET";
+        let header = "not_helve_session=keep; helve_session_x=keep2; helve_session=SECRET";
         assert_eq!(
             strip_session_cookie(header),
-            Some("not_aether_session=keep; aether_session_x=keep2".to_string())
+            Some("not_helve_session=keep; helve_session_x=keep2".to_string())
         );
     }
 
@@ -786,7 +786,7 @@ mod tests {
     fn handles_values_containing_equals() {
         // Base64-ish values contain '='; splitting must not lose them.
         assert_eq!(
-            strip_session_cookie("tok=YWJj==; aether_session=SECRET"),
+            strip_session_cookie("tok=YWJj==; helve_session=SECRET"),
             Some("tok=YWJj==".to_string())
         );
     }
@@ -794,7 +794,7 @@ mod tests {
     #[test]
     fn drops_upstream_attempt_to_overwrite_the_session_cookie() {
         let mut headers = http::HeaderMap::new();
-        headers.append(http::header::SET_COOKIE, "aether_session=ATTACKER; Path=/".parse().unwrap());
+        headers.append(http::header::SET_COOKIE, "helve_session=ATTACKER; Path=/".parse().unwrap());
         headers.append(http::header::SET_COOKIE, "rstudio-session=legit; Path=/".parse().unwrap());
 
         drop_session_set_cookie(&mut headers);

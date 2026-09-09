@@ -177,7 +177,7 @@ pub fn bounded_list(field: &str, items: &[impl AsRef<str>], max_items: usize, ma
     Ok(())
 }
 
-/// Also doubles as a Kubernetes label *value* (the `aether.io/owner` label
+/// Also doubles as a Kubernetes label *value* (the `helve.io/owner` label
 /// tracking who launched a Deployment) and, since deployments.rs prefixes
 /// every launch's name with it (`<username>-<name>`, so a name only has to
 /// be unique among what *that* user has launched, not everyone's), as part
@@ -334,7 +334,7 @@ mod tests {
         // characters valid in a label value but not in a k8s *name* (dots,
         // underscores, uppercase) — since a username now also becomes part
         // of a Deployment/Service name (deployments.rs's `<username>-<name>`
-        // scoping), not just the aether.io/owner label value.
+        // scoping), not just the helve.io/owner label value.
         for name in ["ab", &"a".repeat(33), "-alice", "alice-", "_alice", "al ice", "al/ice", "bob.smith", "a-b_c", "Alice"] {
             assert!(!is_ok(username(name)), "should reject {name:?}");
         }
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn image_refs_reject_whitespace_and_control_characters() {
         assert!(is_ok(image_ref("nginx:alpine")));
-        assert!(is_ok(image_ref("ctr.int.example.com:8443/aether/aether:v1")));
+        assert!(is_ok(image_ref("ctr.int.example.com:8443/helve/helve:v1")));
         assert!(!is_ok(image_ref("")));
         assert!(!is_ok(image_ref("nginx alpine")));
         assert!(!is_ok(image_ref("nginx\nalpine")));

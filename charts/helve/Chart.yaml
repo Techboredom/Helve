@@ -1,12 +1,12 @@
 apiVersion: v2
-name: aether
+name: helve
 description: >-
   A web app for managing compute environments and AI engines on a single
   Kubernetes namespace — launch JupyterLab/RStudio environments or LLM
   inference engines (Ollama, vLLM, SGLang) with a few clicks, behind a login.
 type: application
-version: 0.3.1
-appVersion: "0.3.1"
+version: 0.4.0
+appVersion: "0.4.0"
 keywords:
   - kubernetes
   - dashboard

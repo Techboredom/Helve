@@ -56,8 +56,8 @@ fn slugify(s: &str) -> String {
 /// A slug for the "instance type" segment of an auto-generated name when
 /// there's no template to name it after (a Custom launch): the image's own
 /// repository name, stripped of registry/org path, tag, and digest — e.g.
-/// "ctr.example.com:8443/aether/aether:v1" and "jupyter/base-notebook" slug
-/// to "aether" and "base-notebook" respectively.
+/// "ctr.example.com:8443/helve/helve:v1" and "jupyter/base-notebook" slug
+/// to "helve" and "base-notebook" respectively.
 fn image_repo_slug(image: &str) -> String {
     let repo = image.rsplit('/').next().unwrap_or(image);
     let repo = repo.split(['@', ':']).next().unwrap_or(repo);
@@ -191,7 +191,7 @@ fn security_context_for(user: &CurrentUser) -> Option<PodSecurityContext> {
 
 /// Errors if `user` isn't allowed to manage `deployment` — an admin always
 /// is; anyone else only for a deployment carrying their own `OWNER_LABEL`.
-/// A deployment with no owner label at all (predates Aether, or wasn't
+/// A deployment with no owner label at all (predates Helve, or wasn't
 /// launched through it) can only be managed by an admin.
 fn check_owner(deployment: &Deployment, user: &CurrentUser) -> Result<(), ApiError> {
     if user.role == Role::Admin {
@@ -492,13 +492,13 @@ pub async fn create_deployment(
     // No ingress controller in the cluster yet, so expose the app directly via
     // its own Service — `LoadBalancer` (MetalLB assigns it an external IP) by
     // default, or `ClusterIP`-only when `public_service` is false. That's
-    // required for apps with no auth of their own that rely on Aether's own
+    // required for apps with no auth of their own that rely on Helve's own
     // login as the gate (JupyterLab, RStudio), but it's also a valid, useful
     // choice on its own for templates with no proxy at all (Ollama/vLLM/
     // SGLang set to "internal") — cluster-internal callers (e.g. a coding
     // tool running as another pod) can still reach a ClusterIP directly, it
     // just isn't exposed outside the cluster. Created regardless of
-    // `enable_proxy`, since Aether's own /proxy/ route (backend/src/proxy.rs)
+    // `enable_proxy`, since Helve's own /proxy/ route (backend/src/proxy.rs)
     // reaches proxy-enabled deployments through this same Service's
     // in-cluster ClusterIP either way.
     let mut service_name = None;
@@ -924,7 +924,7 @@ pub async fn restart_deployment(user: CurrentUser, State(state): State<AppState>
 /// and the live container's env var, and — since an env var change only
 /// ever takes effect on a fresh pod, never hot-reloaded into a running one
 /// — restarts it the same way `restart_deployment` does, so the running
-/// pod is never left holding a credential Aether itself no longer knows.
+/// pod is never left holding a credential Helve itself no longer knows.
 pub async fn regenerate_secret(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -1095,7 +1095,7 @@ pub async fn delete_deployment(
 /// Existing PersistentVolumeClaims in the watched namespace, for the
 /// Launch/Templates forms' storage-mount fields. Any logged-in user (same
 /// visibility level as the Images catalog) — this only lists claims that
-/// already exist; Aether never creates or deletes one.
+/// already exist; Helve never creates or deletes one.
 pub async fn list_pvcs(_user: CurrentUser, State(state): State<AppState>) -> Result<Json<Vec<PvcEntry>>, ApiError> {
     let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(state.client.clone(), &state.namespace);
     let list = pvcs.list(&ListParams::default()).await?;
@@ -1129,7 +1129,7 @@ mod tests {
     fn image_repo_slug_strips_registry_org_tag_and_digest() {
         assert_eq!(image_repo_slug("nginx:alpine"), "nginx");
         assert_eq!(image_repo_slug("jupyter/base-notebook"), "base-notebook");
-        assert_eq!(image_repo_slug("ctr.int.example.com:8443/aether/aether:v1"), "aether");
+        assert_eq!(image_repo_slug("ctr.int.example.com:8443/helve/helve:v1"), "helve");
         assert_eq!(image_repo_slug("gcr.io/distroless/cc-debian12:nonroot"), "cc-debian12");
         assert_eq!(image_repo_slug("nginx@sha256:abcd1234"), "nginx");
         // A pathological image string that slugifies to nothing still

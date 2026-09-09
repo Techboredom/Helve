@@ -1,5 +1,5 @@
 {{- if .Values.database.deploy.enabled -}}
-# Evaluation-only Postgres for Aether's own catalog/session store (image
+# Evaluation-only Postgres for Helve's own catalog/session store (image
 # and template catalogs, users/sessions, deployment_secrets), via
 # CloudNativePG. Requires the CloudNativePG operator already installed
 # cluster-wide — that's a one-time, imperative bootstrap step, not
@@ -11,9 +11,9 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: {{ include "aether.dbClusterName" . }}
+  name: {{ include "helve.dbClusterName" . }}
   labels:
-    {{- include "aether.labels" . | nindent 4 }}
+    {{- include "helve.labels" . | nindent 4 }}
 spec:
   instances: 1
   storage:
@@ -27,8 +27,8 @@ spec:
     {{- end }}
   bootstrap:
     initdb:
-      database: aether
-      owner: aether
+      database: helve
+      owner: helve
   resources:
     requests:
       cpu: 100m

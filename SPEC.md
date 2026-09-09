@@ -1,14 +1,14 @@
-**Aether** is a Kubernetes-native orchestration layer designed to deploy, manage, and scale a distributed constellation of interactive development environments (IDEs) 
+**Helve** is a Kubernetes-native orchestration layer designed to deploy, manage, and scale a distributed constellation of interactive development environments (IDEs) 
 and Large Language Model (LLM) engines. 
 
-Unlike single-container setups, Aether treats your cluster as a single, unified resource, where compute, storage, and intelligence are distributed across 
+Unlike single-container setups, Helve treats your cluster as a single, unified resource, where compute, storage, and intelligence are distributed across 
 multiple nodes via **K8s/K3s**.
 
 ---
 
 ## Architecture
 
-Aether decomposes the development workflow into three distinct functional layers within your cluster:
+Helve decomposes the development workflow into three distinct functional layers within your cluster:
 
 ### 1. The Intelligence Layer (AI models)
 The heavy-lifting engines that power your models. Deployed as high-availability `StatefulSets` or `Deployments` with GPU-passthrough capabilities.
@@ -30,7 +30,7 @@ The entry point for all cluster traffic.
 
 ## Deployment
 
-Aether is deployed using **Helm** or standard **Kubernetes Manifests**. It is optimized for **K3s** (for edge/resource-constrained environments) and **Standard K8s** 
+Helve is deployed using **Helm** or standard **Kubernetes Manifests**. It is optimized for **K3s** (for edge/resource-constrained environments) and **Standard K8s** 
 (for heavy-duty GPU clusters).
 
 ### Prerequisites
@@ -66,4 +66,4 @@ Aether is deployed using **Helm** or standard **Kubernetes Manifests**. It is op
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
-**"In the void of raw data, Aether brings the light of intelligence."**
+**"In the void of raw data, Helve brings the light of intelligence."**

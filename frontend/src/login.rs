@@ -31,7 +31,7 @@ pub fn LoginPage(current_user: RwSignal<Option<UserInfo>>) -> impl IntoView {
     view! {
         <div class="login-screen">
             <form class="login-form" on:submit=on_submit>
-                <h1>"Aether"</h1>
+                <h1>"Helve"</h1>
                 {move || error.get().map(|msg| view! { <div class="error">{msg}</div> })}
                 <label>
                     "Username"

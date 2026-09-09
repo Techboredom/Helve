@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/techboredom/aether
+  repository: ghcr.io/techboredom/helve
   # Defaults to .Chart.AppVersion when empty.
   tag: ""
   pullPolicy: IfNotPresent
@@ -24,7 +24,7 @@ replicaCount: 1
 terminationGracePeriodSeconds: 30
 
 # The one required value — everything else below has a working default.
-# The public hostname Aether itself is served from, e.g. "aether.example.com".
+# The public hostname Helve itself is served from, e.g. "helve.example.com".
 host: ""
 
 proxy:
@@ -35,7 +35,7 @@ proxy:
   baseDomain: ""
   # Serves every proxied deployment from its own origin (recommended).
   # Setting this to false serves proxied apps same-origin at
-  # /proxy/<name>/ instead, where their JavaScript can call Aether's own
+  # /proxy/<name>/ instead, where their JavaScript can call Helve's own
   # API as whoever is browsing them — the chart refuses to render unless
   # allowSameOriginProxy is also set, so that risk can't be taken by
   # accident.
@@ -53,19 +53,19 @@ ingress:
     # plain HTTP and leaves TLS termination to something in front of this
     # chart entirely.
     mode: certManager
-    secretName: aether-tls
+    secretName: helve-tls
     issuerRef:
       name: ""
       kind: ClusterIssuer
 
 database:
   # The supported path: point at a Secret holding a Postgres connection
-  # string. Aether runs its own migrations on startup, so nothing further
+  # string. Helve runs its own migrations on startup, so nothing further
   # needs creating in the database beyond the database/role themselves.
   existingSecret: ""
   existingSecretKey: uri
   # Evaluation only: deploys a single-replica, no-backups CloudNativePG
-  # Postgres alongside Aether. Do not use this for anything you'd be upset
+  # Postgres alongside Helve. Do not use this for anything you'd be upset
   # to lose — there is no backup/restore story here at all. Requires the
   # CloudNativePG operator already installed on the cluster.
   deploy:

@@ -3,12 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aether</title>
+    <title>Helve</title>
     <link data-trunk rel="css" href="style.css" />
-    <!-- Copied to the dist root so the header mark and the favicon can both
-         reference it at /aether-mark.svg. -->
-    <link data-trunk rel="copy-file" href="aether-mark.svg" />
-    <link rel="icon" type="image/svg+xml" href="/aether-mark.svg" />
+    <!-- Inline rather than a copied file. The mark is fill="currentColor" and
+         a linked SVG favicon has no inherited colour, so it would resolve to
+         black and vanish against a dark tab strip; the fill is set here, at
+         the point of use. This is the favicon variant of the mark, per the
+         brand rule that the full-detail one closes up below 48px. -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='47 1 87 180' fill='%23D9BE7E'><path d='M62 1c5 0 10 2 10 10 1 13 0 23-4 35-4 14-3 26 2 40 5 16 8 24 11 38s5 22 7 32 1 19-6 22-15 0-18-8 0-16 4-22c-2-10-4-16-6-26-3-14-7-24-9-36-3-16-6-30-4-42 1-13-1-19 0-25 .5-8 0-14 5-17Z'/><path d='m51 14 23-2c20 1 36-2 47-5 8 3 13 12 13 26 0 17-9 33-23 40-13-11-24-22-35-27-8 0-17-1-25-2Z'/></svg>" />
   </head>
   <body></body>
 </html>

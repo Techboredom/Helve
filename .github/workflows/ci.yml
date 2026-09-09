@@ -56,8 +56,8 @@ jobs:
 
       - name: helm lint
         run: |
-          helm lint charts/aether \
-            --set host=aether.example.com \
+          helm lint charts/helve \
+            --set host=helve.example.com \
             --set database.deploy.enabled=true \
             --set ingress.tls.issuerRef.name=test-issuer
 

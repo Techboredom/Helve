@@ -1,4 +1,4 @@
-//! Thin wrappers over `gloo_net` for talking to Aether's own API.
+//! Thin wrappers over `gloo_net` for talking to Helve's own API.
 //!
 //! Every tab was repeating the same three-step dance — encode, send, then
 //! decode either the body or the `{"error": "..."}` the backend returns —

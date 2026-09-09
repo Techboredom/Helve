@@ -1,10 +1,10 @@
 {{- if .Values.ingress.enabled -}}
-{{- $fullName := include "aether.fullname" . -}}
+{{- $fullName := include "helve.fullname" . -}}
 {{- $hosts := list .Values.host -}}
 {{- if .Values.proxy.separateOrigins -}}
-{{- $hosts = append $hosts (printf "*.%s" (include "aether.proxyBaseDomain" .)) -}}
+{{- $hosts = append $hosts (printf "*.%s" (include "helve.proxyBaseDomain" .)) -}}
 {{- end -}}
-# Routes every one of Aether's hostnames to the one Service. Whatever
+# Routes every one of Helve's hostnames to the one Service. Whatever
 # terminates TLS here must pass the original `Host` header through
 # untouched — the backend dispatches on it to decide whether a request is
 # for the app itself or for one deployment's proxy origin (see
@@ -23,7 +23,7 @@ kind: Ingress
 metadata:
   name: {{ $fullName }}
   labels:
-    {{- include "aether.labels" . | nindent 4 }}
+    {{- include "helve.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}

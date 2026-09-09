@@ -1,20 +1,20 @@
-Aether is being installed.
+Helve is being installed.
 
-App URL:      {{ include "aether.appOrigin" . }}
+App URL:      {{ include "helve.appOrigin" . }}
 {{- if .Values.proxy.separateOrigins }}
-Proxy origin: *.{{ include "aether.proxyBaseDomain" . }}  (one hostname per launched app)
+Proxy origin: *.{{ include "helve.proxyBaseDomain" . }}  (one hostname per launched app)
 {{- else }}
 
 proxy.separateOrigins is false: launched apps are proxied at
 /proxy/<name>/ on the app's own origin above, which lets a proxied app's
-JavaScript call Aether's API as whoever is browsing it. Fine for local
+JavaScript call Helve's API as whoever is browsing it. Fine for local
 development; not recommended otherwise.
 {{- end }}
 
 DNS records required, both pointed at your ingress controller's address:
   {{ .Values.host }}                              (the app itself)
 {{- if .Values.proxy.separateOrigins }}
-  *.{{ include "aether.proxyBaseDomain" . }}       (wildcard, one per launched app)
+  *.{{ include "helve.proxyBaseDomain" . }}       (wildcard, one per launched app)
 {{- end }}
 
 {{- if and .Values.ingress.enabled .Values.ingress.tls.enabled (eq .Values.ingress.tls.mode "certManager") }}
@@ -22,7 +22,7 @@ DNS records required, both pointed at your ingress controller's address:
 TLS: a cert-manager Certificate ({{ .Values.ingress.tls.secretName }}) has been requested from
 issuer "{{ .Values.ingress.tls.issuerRef.name }}" ({{ .Values.ingress.tls.issuerRef.kind }}).
 {{- if .Values.proxy.separateOrigins }}
-Its wildcard name covers "*.{{ include "aether.proxyBaseDomain" . }}", which
+Its wildcard name covers "*.{{ include "helve.proxyBaseDomain" . }}", which
 requires your issuer to be able to solve a DNS-01 challenge — HTTP-01
 cannot issue a wildcard certificate.
 {{- end }}
@@ -49,7 +49,7 @@ initial "admin" account the first time the app starts against an empty
 database, and is ignored from then on. Once you've logged in and created
 real accounts, delete the bootstrap Secret so the password doesn't linger:
 
-  kubectl delete secret {{ include "aether.adminBootstrapSecretName" . }} -n {{ .Release.Namespace }}
+  kubectl delete secret {{ include "helve.adminBootstrapSecretName" . }} -n {{ .Release.Namespace }}
 
 (The app reads this Secret with `optional: true`, so deleting it is always
 safe — it never causes the pod to fail to start.)

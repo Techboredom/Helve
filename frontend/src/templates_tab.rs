@@ -555,7 +555,7 @@ pub fn TemplatesTab() -> impl IntoView {
                         prop:checked=move || proxy_enabled.get()
                         on:change=move |ev| proxy_enabled.set(event_target_checked(&ev))
                     />
-                    "Also reachable via Aether's own /proxy/<name>/ route (injects the generated secret above, if any)"
+                    "Also reachable via Helve's own /proxy/<name>/ route (injects the generated secret above, if any)"
                 </label>
 
                 <label class="checkbox">
@@ -574,7 +574,7 @@ pub fn TemplatesTab() -> impl IntoView {
                         prop:checked=move || public_service.get()
                         on:change=move |ev| public_service.set(event_target_checked(&ev))
                     />
-                    "Public LoadBalancer Service (uncheck to make it internal — reachable only from inside the cluster, e.g. by other tooling pods, or via Aether's proxy for apps with no auth of their own)"
+                    "Public LoadBalancer Service (uncheck to make it internal — reachable only from inside the cluster, e.g. by other tooling pods, or via Helve's proxy for apps with no auth of their own)"
                 </label>
 
                 <div class="form-actions">

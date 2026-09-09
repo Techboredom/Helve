@@ -55,15 +55,15 @@ struct Args {
     admin_bootstrap_password: Option<String>,
 
     /// Public origin this app is served from, e.g.
-    /// "https://aether.example.com". Set this whenever the app is
+    /// "https://helve.example.com". Set this whenever the app is
     /// served over HTTPS: its scheme is what allows session cookies to be
     /// marked `Secure`. Required by `--proxy-base-domain`.
     #[arg(long, env = "APP_ORIGIN")]
     app_origin: Option<String>,
 
     /// Base domain for per-deployment proxy origins, e.g.
-    /// "proxy.aether.example.com" — a deployment named `foo` is then
-    /// served at `foo.proxy.aether.example.com`, on its own origin
+    /// "proxy.helve.example.com" — a deployment named `foo` is then
+    /// served at `foo.proxy.helve.example.com`, on its own origin
     /// rather than on a path under this app's. Needs a wildcard DNS record
     /// (and TLS cert) covering `*.<this domain>`.
     ///

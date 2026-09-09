@@ -1,10 +1,10 @@
 {{- if and .Values.ingress.enabled .Values.ingress.tls.enabled (eq .Values.ingress.tls.mode "certManager") -}}
 {{- $hosts := list .Values.host -}}
 {{- if .Values.proxy.separateOrigins -}}
-{{- $hosts = append $hosts (printf "*.%s" (include "aether.proxyBaseDomain" .)) -}}
+{{- $hosts = append $hosts (printf "*.%s" (include "helve.proxyBaseDomain" .)) -}}
 {{- end -}}
-# The TLS certificate for Aether, issued by cert-manager. One Certificate
-# covers every one of Aether's hostnames because they're all served by the
+# The TLS certificate for Helve, issued by cert-manager. One Certificate
+# covers every one of Helve's hostnames because they're all served by the
 # same Ingress. When proxy.separateOrigins is true, the wildcard entry
 # matches exactly one label in front of the base domain — which is why
 # _helpers.tpl's guard rejects a proxy.baseDomain more than one label
@@ -15,7 +15,7 @@ kind: Certificate
 metadata:
   name: {{ .Values.ingress.tls.secretName }}
   labels:
-    {{- include "aether.labels" . | nindent 4 }}
+    {{- include "helve.labels" . | nindent 4 }}
 spec:
   secretName: {{ .Values.ingress.tls.secretName }}
   commonName: {{ .Values.host }}

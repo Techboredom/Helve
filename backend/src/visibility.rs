@@ -180,39 +180,39 @@ mod tests {
 
     #[test]
     fn cluster_ip_has_an_internal_address_and_no_link() {
-        let access = access_from_service(&service("ClusterIP", vec![8000], None), "aether").unwrap();
-        assert_eq!(access.internal, "vllm.aether.svc.cluster.local:8000");
+        let access = access_from_service(&service("ClusterIP", vec![8000], None), "helve").unwrap();
+        assert_eq!(access.internal, "vllm.helve.svc.cluster.local:8000");
         assert_eq!(access.external_url, None);
     }
 
     #[test]
     fn load_balancer_with_an_ip_gets_a_link() {
         let ingress = LoadBalancerIngress { ip: Some("192.168.10.7".to_string()), ..Default::default() };
-        let access = access_from_service(&service("LoadBalancer", vec![11434], Some(ingress)), "aether").unwrap();
+        let access = access_from_service(&service("LoadBalancer", vec![11434], Some(ingress)), "helve").unwrap();
         assert_eq!(access.external_url.as_deref(), Some("http://192.168.10.7:11434"));
         // The in-cluster address is still offered: that's what another pod uses.
-        assert_eq!(access.internal, "vllm.aether.svc.cluster.local:11434");
+        assert_eq!(access.internal, "vllm.helve.svc.cluster.local:11434");
     }
 
     #[test]
     fn load_balancer_still_awaiting_an_address_offers_no_link() {
         // MetalLB (or a cloud controller) hasn't assigned one yet. Half a URL
         // would be worse than none, and the internal address still works.
-        let access = access_from_service(&service("LoadBalancer", vec![80], None), "aether").unwrap();
+        let access = access_from_service(&service("LoadBalancer", vec![80], None), "helve").unwrap();
         assert_eq!(access.external_url, None);
-        assert_eq!(access.internal, "vllm.aether.svc.cluster.local:80");
+        assert_eq!(access.internal, "vllm.helve.svc.cluster.local:80");
     }
 
     #[test]
     fn a_load_balancer_hostname_is_used_when_there_is_no_ip() {
         let ingress =
             LoadBalancerIngress { hostname: Some("lb.example.com".to_string()), ..Default::default() };
-        let access = access_from_service(&service("LoadBalancer", vec![443], Some(ingress)), "aether").unwrap();
+        let access = access_from_service(&service("LoadBalancer", vec![443], Some(ingress)), "helve").unwrap();
         assert_eq!(access.external_url.as_deref(), Some("http://lb.example.com:443"));
     }
 
     #[test]
     fn a_service_with_no_ports_has_no_address_at_all() {
-        assert!(access_from_service(&service("ClusterIP", vec![], None), "aether").is_none());
+        assert!(access_from_service(&service("ClusterIP", vec![], None), "helve").is_none());
     }
 }

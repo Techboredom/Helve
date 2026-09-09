@@ -6,7 +6,7 @@ use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 
 /// Label set on launched Deployments/pods/Services recording who launched
 /// them, via `CreateDeploymentRequest` — see `backend/src/deployments.rs`.
-pub const OWNER_LABEL: &str = "aether.io/owner";
+pub const OWNER_LABEL: &str = "helve.io/owner";
 
 /// Converts a Kubernetes `Pod` into our slimmed-down `PodInfo`, aggregating
 /// resource requests/limits (and accelerator resources) across all containers.

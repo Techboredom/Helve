@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-const STORAGE_KEY: &str = "aether-theme";
+const STORAGE_KEY: &str = "helve-theme";
 
 /// Reads the persisted theme (defaulting to dark) and keeps the document's
 /// `data-theme` attribute — which `style.css` themes off — and localStorage

@@ -19,7 +19,7 @@ use crate::error::ApiError;
 use crate::state::AppState;
 use crate::validate;
 
-pub const SESSION_COOKIE: &str = "aether_session";
+pub const SESSION_COOKIE: &str = "helve_session";
 const SESSION_LIFETIME_DAYS: i64 = 7;
 
 pub fn hash_password(password: &str) -> Result<String, ApiError> {
@@ -73,7 +73,7 @@ pub fn hash_token(token: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// The authenticated caller, extracted from the `aether_session` cookie.
+/// The authenticated caller, extracted from the `helve_session` cookie.
 /// Any endpoint that takes this as a parameter requires a logged-in user of
 /// either role — use `AdminUser` instead for admin-only endpoints.
 #[derive(Clone, Debug)]
@@ -175,7 +175,7 @@ async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<Cu
 }
 
 /// Loads a user directly by id, for the paths that establish identity from
-/// something other than the `aether_session` cookie — specifically a proxy
+/// something other than the `helve_session` cookie — specifically a proxy
 /// origin's own session (see `proxy.rs`), which lives on a different host and
 /// therefore never receives that cookie.
 pub async fn user_by_id(pg: &sqlx::PgPool, id: i32) -> Result<Option<CurrentUser>, ApiError> {

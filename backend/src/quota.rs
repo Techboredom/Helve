@@ -70,7 +70,7 @@ pub async fn load_global_settings(pg: &PgPool) -> Result<GlobalSettings, ApiErro
 /// same as quota enforcement (this exists to stop a `user` account
 /// launching arbitrary images, not to constrain someone who already has
 /// unrestricted cluster access via their own kubeconfig regardless of what
-/// Aether enforces). Only queries the catalog tables when actually needed.
+/// Helve enforces). Only queries the catalog tables when actually needed.
 pub async fn check_image_allowed(state: &AppState, user: &CurrentUser, image: &str, global: &GlobalSettings) -> Result<(), ApiError> {
     if user.role == Role::Admin || global.allow_custom_images {
         return Ok(());
@@ -150,7 +150,7 @@ fn usage_by_owner(deployments: &[Deployment], exclude_deployment: Option<&str>) 
             continue;
         }
         let Some(owner) = deployment.metadata.labels.as_ref().and_then(|l| l.get(OWNER_LABEL)) else {
-            // Not launched through Aether, so not attributable to an account.
+            // Not launched through Helve, so not attributable to an account.
             continue;
         };
         let replicas = i64::from(deployment.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1));
@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_deployments_aether_did_not_launch() {
+    fn ignores_deployments_helve_did_not_launch() {
         // No owner label: someone else's workload in this namespace, not
         // attributable to any account.
         let deployments = vec![deployment("stray", None, 5, &[("cpu", "8")])];

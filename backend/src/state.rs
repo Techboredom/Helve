@@ -9,10 +9,10 @@ use sqlx::{PgPool, Postgres, Transaction};
 use tokio::sync::{broadcast, Mutex, RwLock};
 
 /// Serves each proxied deployment from its own origin
-/// (`<name>.<base_domain>`) rather than from a path on Aether's own origin.
-/// That separation is what stops a proxied app — which runs code Aether
+/// (`<name>.<base_domain>`) rather than from a path on Helve's own origin.
+/// That separation is what stops a proxied app — which runs code Helve
 /// doesn't control — from reaching `/api/*` as whoever is browsing it, since
-/// the browser then treats it as a different origin and Aether's host-only
+/// the browser then treats it as a different origin and Helve's host-only
 /// session cookie never travels there.
 ///
 /// `None` (neither flag set) keeps the legacy path-based `/proxy/<name>/`
@@ -20,12 +20,12 @@ use tokio::sync::{broadcast, Mutex, RwLock};
 /// development.
 #[derive(Clone, Debug)]
 pub struct ProxyOrigin {
-    /// Where the app itself is served, e.g. `https://aether.example.com`.
+    /// Where the app itself is served, e.g. `https://helve.example.com`.
     /// Used to send an unauthenticated proxy origin back somewhere the
     /// caller's session cookie actually exists.
     pub app_origin: String,
-    /// e.g. `proxy.aether.example.com`, so a deployment named `foo`
-    /// is served at `foo.proxy.aether.example.com`.
+    /// e.g. `proxy.helve.example.com`, so a deployment named `foo`
+    /// is served at `foo.proxy.helve.example.com`.
     pub base_domain: String,
 }
 
@@ -180,7 +180,7 @@ impl AppState {
     }
 
     /// Serializes quota-checked writes (launch, scale, edit) across every
-    /// Aether replica, not just within one process.
+    /// Helve replica, not just within one process.
     ///
     /// Quota is enforced by reading current usage and then writing — two
     /// requests interleaving between those steps would both see the
@@ -303,19 +303,19 @@ mod tests {
 
     fn origin() -> ProxyOrigin {
         ProxyOrigin {
-            app_origin: "https://aether.example.com".to_string(),
-            base_domain: "proxy.aether.example.com".to_string(),
+            app_origin: "https://helve.example.com".to_string(),
+            base_domain: "proxy.helve.example.com".to_string(),
         }
     }
 
     #[test]
     fn maps_a_single_label_host_to_its_deployment() {
         let o = origin();
-        assert_eq!(o.deployment_for_host("foo.proxy.aether.example.com"), Some("foo".to_string()));
+        assert_eq!(o.deployment_for_host("foo.proxy.helve.example.com"), Some("foo".to_string()));
         // A port is part of the Host header but not of the name.
-        assert_eq!(o.deployment_for_host("foo.proxy.aether.example.com:8443"), Some("foo".to_string()));
+        assert_eq!(o.deployment_for_host("foo.proxy.helve.example.com:8443"), Some("foo".to_string()));
         // Trailing dot is a legal absolute FQDN.
-        assert_eq!(o.deployment_for_host("foo.proxy.aether.example.com."), Some("foo".to_string()));
+        assert_eq!(o.deployment_for_host("foo.proxy.helve.example.com."), Some("foo".to_string()));
     }
 
     #[test]
@@ -323,8 +323,8 @@ mod tests {
         let o = origin();
         // The attacker-registered lookalike: suffix matches, but it is a
         // different domain entirely.
-        assert_eq!(o.deployment_for_host("evilproxy.aether.example.com"), None);
-        assert_eq!(o.deployment_for_host("notproxy.aether.example.com"), None);
+        assert_eq!(o.deployment_for_host("evilproxy.helve.example.com"), None);
+        assert_eq!(o.deployment_for_host("notproxy.helve.example.com"), None);
     }
 
     #[test]
@@ -332,8 +332,8 @@ mod tests {
         let o = origin();
         // Browsers already lowercase the Host header, but a non-browser
         // client sending mixed case must still match.
-        assert_eq!(o.deployment_for_host("Foo.Proxy.Aether.Example.Com"), Some("foo".to_string()));
-        assert_eq!(o.deployment_for_host("FOO.PROXY.AETHER.EXAMPLE.COM"), Some("foo".to_string()));
+        assert_eq!(o.deployment_for_host("Foo.Proxy.Helve.Example.Com"), Some("foo".to_string()));
+        assert_eq!(o.deployment_for_host("FOO.PROXY.HELVE.EXAMPLE.COM"), Some("foo".to_string()));
     }
 
     #[test]
@@ -341,14 +341,14 @@ mod tests {
         // A wildcard cert covers one label, so anything deeper would be
         // served without a matching cert — and would let one deployment
         // shadow another's name.
-        assert_eq!(origin().deployment_for_host("a.b.proxy.aether.example.com"), None);
+        assert_eq!(origin().deployment_for_host("a.b.proxy.helve.example.com"), None);
     }
 
     #[test]
     fn rejects_the_base_domain_and_app_origin_themselves() {
         let o = origin();
-        assert_eq!(o.deployment_for_host("proxy.aether.example.com"), None);
-        assert_eq!(o.deployment_for_host("aether.example.com"), None);
+        assert_eq!(o.deployment_for_host("proxy.helve.example.com"), None);
+        assert_eq!(o.deployment_for_host("helve.example.com"), None);
         assert_eq!(o.deployment_for_host("unrelated.example.com"), None);
         assert_eq!(o.deployment_for_host(""), None);
     }
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn builds_per_deployment_origins_and_urls() {
         let o = origin();
-        assert_eq!(o.origin_for("foo"), "https://foo.proxy.aether.example.com");
+        assert_eq!(o.origin_for("foo"), "https://foo.proxy.helve.example.com");
         assert!(o.is_https());
 
         let plain = ProxyOrigin { app_origin: "http://localhost:3000".to_string(), ..origin() };

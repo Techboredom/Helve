@@ -175,7 +175,7 @@ header {
     radial-gradient(46% 46% at 26% 22%, var(--glow-a), transparent 68%),
     radial-gradient(42% 44% at 78% 16%, var(--glow-b), transparent 70%),
     radial-gradient(60% 40% at 50% 4%, var(--glow-a), transparent 74%);
-  animation: aether-drift 38s ease-in-out infinite alternate;
+  animation: helve-drift 38s ease-in-out infinite alternate;
 }
 
 /* Fixed positions rather than a repeating tile, so there's no visible seam.
@@ -204,7 +204,7 @@ header {
     radial-gradient(1px 1px at 4% 62%, var(--star), transparent 100%);
 }
 
-@keyframes aether-drift {
+@keyframes helve-drift {
   from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
   to   { transform: translate3d(1.5%, 1.5%, 0) scale(1.05); }
 }

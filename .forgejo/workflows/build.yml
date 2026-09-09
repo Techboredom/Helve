@@ -40,8 +40,8 @@ jobs:
           # that's bind-mounted from the checkout.
           docker run --rm \
             -v "$PWD:/src" -w /src \
-            -v aether-ci-cargo:/usr/local/cargo/registry \
-            -v aether-ci-target:/src/target \
+            -v helve-ci-cargo:/usr/local/cargo/registry \
+            -v helve-ci-target:/src/target \
             rust:1-slim-bookworm \
             bash -eux -c '
               rustup component add clippy
@@ -71,8 +71,8 @@ jobs:
           # later needs to run authenticated git commands against it. Left
           # at the default (true), checkout persists its own auto-injected
           # credential (scoped only to this repo) into the job's git config,
-          # which then collides with the explicit AETHER_DEPLOY_TOKEN the
-          # "Bump image tag" step uses to clone the separate Aether-Deploy
+          # which then collides with the explicit HELVE_DEPLOY_TOKEN the
+          # "Bump image tag" step uses to clone the separate Helve-Deploy
           # repo on the same git host.
           persist-credentials: false
 
@@ -93,8 +93,8 @@ jobs:
       - name: Set up QEMU + buildx (multi-arch)
         run: |
           docker run --rm --privileged tonistiigi/binfmt --install all
-          docker buildx create --name aether-builder --driver docker-container --use 2>/dev/null \
-            || docker buildx use aether-builder
+          docker buildx create --name helve-builder --driver docker-container --use 2>/dev/null \
+            || docker buildx use helve-builder
           docker buildx inspect --bootstrap
 
       - name: Build and push multi-arch image
@@ -131,13 +131,13 @@ jobs:
         run: docker logout "$REGISTRY"
 
       # GitOps deploy: this app's Helm chart lives in this repo
-      # (charts/aether/), but the cluster's own values (image tag
+      # (charts/helve/), but the cluster's own values (image tag
       # included) + the Argo CD Application live in the separate
-      # Aether-Deploy repo — this job only ever touches the registry and
+      # Helve-Deploy repo — this job only ever touches the registry and
       # that other repo's git history, never the cluster itself. Argo CD
-      # (running in-cluster, watching Aether-Deploy) is what actually
+      # (running in-cluster, watching Helve-Deploy) is what actually
       # rolls the new image out.
-      - name: Bump image tag in Aether-Deploy
+      - name: Bump image tag in Helve-Deploy
         run: |
           # Forgejo's PAT convention is token-only in the URL (no
           # username) - "user:token@" pairs get checked as real Basic
@@ -147,9 +147,9 @@ jobs:
           # The runner executes host-mode (no fresh container per job), so
           # a previous run's clone can still be sitting in /tmp - clear it
           # before cloning fresh.
-          rm -rf /tmp/aether-deploy
-          git clone "https://${{ secrets.AETHER_DEPLOY_TOKEN }}@$DEPLOY_REPO" /tmp/aether-deploy
-          cd /tmp/aether-deploy
+          rm -rf /tmp/helve-deploy
+          git clone "https://${{ secrets.HELVE_DEPLOY_TOKEN }}@$DEPLOY_REPO" /tmp/helve-deploy
+          cd /tmp/helve-deploy
 
           # $TAG names an image in *this* registry, so only rewrite the tag
           # when values.yaml is actually pointing here. When it points
@@ -176,24 +176,24 @@ jobs:
             exit 0
           fi
 
-          git config user.name "aether-ci"
-          git config user.email "aether-ci@users.noreply.git"
+          git config user.name "helve-ci"
+          git config user.email "helve-ci@users.noreply.git"
           git add values.yaml
-          git commit -m "deploy: bump aether image to $TAG"
+          git commit -m "deploy: bump helve image to $TAG"
           git push origin HEAD:main
           cd /
-          rm -rf /tmp/aether-deploy
+          rm -rf /tmp/helve-deploy
 
       # Host-mode runner: this machine's disk is shared across every job,
       # not thrown away like a fresh per-job container would be. Clean up
       # what this run produced so it doesn't pile up run after run.
       # if: always() so a failure in an earlier step still leaves the disk
       # clean, rather than needing the next run's steps to clean up first
-      # (like the leftover /tmp/aether-deploy this workflow used to hit).
+      # (like the leftover /tmp/helve-deploy this workflow used to hit).
       - name: Clean up build artifacts
         if: always()
         run: |
-          rm -rf /tmp/aether-deploy
+          rm -rf /tmp/helve-deploy
           # The docker-container buildx driver pushes straight to the
           # registry without loading multi-arch results into the local
           # `docker images` store, so this is mostly a no-op now - kept as
