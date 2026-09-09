@@ -130,6 +130,33 @@ jobs:
         if: always()
         run: docker logout "$REGISTRY"
 
+      # Mirrors the public release pipeline's chart push (.github/workflows/
+      # release.yml), just against Harbor instead of GHCR, and only on a
+      # real "vX.Y.Z" tag — RELEASE_TAG is only set above when this run was
+      # triggered by one. A chart per dev commit isn't useful the way the
+      # image's SHA/build-number tags are: nothing consumes an
+      # arbitrary-version chart, and Argo CD/Helve-Deploy always pin an
+      # exact release.
+      - name: Set up Helm
+        if: env.RELEASE_TAG != ''
+        uses: azure/setup-helm@v4
+
+      - name: Package and push chart to Harbor
+        if: env.RELEASE_TAG != ''
+        run: |
+          mkdir -p /tmp/chart-out
+          helm package charts/helve --version "$RELEASE_TAG" --app-version "$RELEASE_TAG" --destination /tmp/chart-out
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | helm registry login "$REGISTRY" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
+          # Mirrors the GHCR layout (ghcr.io/techboredom/charts/helve) one
+          # level down under Harbor's required <registry>/<project>/<repo>
+          # shape, so the same "charts/<name>" path means the same thing on
+          # both registries.
+          helm push "/tmp/chart-out/helve-$RELEASE_TAG.tgz" "oci://$REGISTRY/helve/charts"
+
+      - name: Log out of Helm registry
+        if: env.RELEASE_TAG != ''
+        run: helm registry logout "$REGISTRY"
+
       # GitOps deploy: this app's Helm chart lives in this repo
       # (charts/helve/), but the cluster's own values (image tag
       # included) + the Argo CD Application live in the separate
