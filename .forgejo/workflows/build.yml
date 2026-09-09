@@ -99,31 +99,75 @@ jobs:
 
           # The docker-container driver runs BuildKit inside its own
           # container, with its own filesystem and its own CA trust store -
-          # completely separate from the host Docker daemon's
-          # /etc/docker/certs.d, which is what `docker login` above actually
-          # uses. Login succeeding says nothing about whether *this*
-          # container trusts Harbor; without this, `buildx build --push`
-          # fails pushing blobs with "x509: certificate signed by unknown
-          # authority" even though the daemon-level login worked fine.
+          # completely separate from the host Docker daemon's, which is what
+          # `docker login` above actually uses. Login succeeding says
+          # nothing about whether *this* container trusts Harbor; without
+          # this, `buildx build --push` fails pushing blobs with "x509:
+          # certificate signed by unknown authority" even though the
+          # daemon-level login worked fine.
           #
-          # Idempotent, safe to run every time: update-ca-certificates is a
-          # no-op if the cert's already installed, and this runs regardless
-          # of whether the buildx create above hit the create or reuse path
-          # above - a builder surviving from before this fix existed still
-          # gets patched.
+          # Where the host itself trusts this CA from is deliberately not
+          # assumed to be one fixed path: this project has already hit CA
+          # trust living in a different place on every surface it's
+          # touched - the k8s nodes' containerd, the Docker daemon's own
+          # certs.d, and now this, where the runner host turned out to be
+          # someone's Arch desktop trusting it via system trust-anchors
+          # (/etc/ssl/certs/*.pem) rather than certs.d at all. Search a
+          # short list of conventions and use whichever actually has it,
+          # identified by subject rather than a specific filename, so a
+          # future runner on yet another distro doesn't silently skip this
+          # and produce the exact same confusing push failure again.
+          CA_SRC=""
+          for candidate in \
+            /etc/docker/certs.d/ctr.int.techboredom.com:8443/ca.crt \
+            /etc/ssl/certs/*.pem \
+            /etc/pki/ca-trust/source/anchors/*.crt \
+            /usr/local/share/ca-certificates/*.crt
+          do
+            [ -f "$candidate" ] || continue
+            if openssl x509 -in "$candidate" -noout -subject 2>/dev/null | grep -q 'O=LocalCA'; then
+              CA_SRC="$candidate"
+              break
+            fi
+          done
+
           BUILDKIT_CONTAINER="$(docker ps --filter name=buildx_buildkit_helve-builder --format '{{.Names}}' | head -1)"
-          if [ -n "$BUILDKIT_CONTAINER" ]; then
-            docker cp /etc/docker/certs.d/ctr.int.techboredom.com:8443/ca.crt \
-              "$BUILDKIT_CONTAINER:/usr/local/share/ca-certificates/int-techboredom.crt"
-            docker exec "$BUILDKIT_CONTAINER" update-ca-certificates
-            docker restart "$BUILDKIT_CONTAINER"
-            # Buildx's client loses its connection to the node when its
-            # container restarts underneath it; --bootstrap reconnects and
-            # waits for it to be ready again rather than racing the next step.
-            docker buildx inspect --bootstrap
-          else
-            echo "No buildx_buildkit_helve-builder* container found - the CA trust step below was skipped."
+
+          if [ -z "$CA_SRC" ]; then
+            echo "Could not find the internal CA (subject O=LocalCA) anywhere this runner checked."
+            echo "docker login succeeding means the host trusts it from *somewhere* - add that"
+            echo "location to the candidate list above."
             exit 1
+          elif [ -z "$BUILDKIT_CONTAINER" ]; then
+            echo "No buildx_buildkit_helve-builder* container found - can't patch its trust store."
+            exit 1
+          else
+            # Appended directly to Alpine's consolidated bundle rather than
+            # via update-ca-certificates: this image doesn't ship that tool
+            # (only the static ca-certificates-bundle package, not
+            # ca-certificates proper), but Go's TLS stack - what BuildKit is
+            # written in - reads this exact file directly regardless, so the
+            # updater was never actually necessary.
+            #
+            # Guarded by a marker comment, not by matching the cert's own
+            # content: this container is reused indefinitely across runs
+            # (see the create step above), so appending unconditionally on
+            # every build would grow the bundle by one duplicate entry per
+            # run forever. A plain comment line is safe to add - PEM parsers,
+            # Go's included, only look for BEGIN/END CERTIFICATE blocks and
+            # ignore everything else in the file.
+            MARKER="# helve-ci: internal CA (appended, not part of the base image)"
+            if ! docker exec "$BUILDKIT_CONTAINER" grep -qF "$MARKER" /etc/ssl/certs/ca-certificates.crt 2>/dev/null; then
+              docker cp "$CA_SRC" "$BUILDKIT_CONTAINER:/tmp/internal-ca.pem"
+              docker exec "$BUILDKIT_CONTAINER" sh -c \
+                "printf '\n%s\n' \"$MARKER\" >> /etc/ssl/certs/ca-certificates.crt
+                 cat /tmp/internal-ca.pem >> /etc/ssl/certs/ca-certificates.crt"
+              docker restart "$BUILDKIT_CONTAINER"
+              # Buildx's client loses its connection to the node when its
+              # container restarts underneath it; --bootstrap reconnects and
+              # waits for it to be ready again rather than racing the next step.
+              docker buildx inspect --bootstrap
+            fi
           fi
 
       - name: Build and push multi-arch image
