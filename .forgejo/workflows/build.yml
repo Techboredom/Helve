@@ -97,6 +97,35 @@ jobs:
             || docker buildx use helve-builder
           docker buildx inspect --bootstrap
 
+          # The docker-container driver runs BuildKit inside its own
+          # container, with its own filesystem and its own CA trust store -
+          # completely separate from the host Docker daemon's
+          # /etc/docker/certs.d, which is what `docker login` above actually
+          # uses. Login succeeding says nothing about whether *this*
+          # container trusts Harbor; without this, `buildx build --push`
+          # fails pushing blobs with "x509: certificate signed by unknown
+          # authority" even though the daemon-level login worked fine.
+          #
+          # Idempotent, safe to run every time: update-ca-certificates is a
+          # no-op if the cert's already installed, and this runs regardless
+          # of whether the buildx create above hit the create or reuse path
+          # above - a builder surviving from before this fix existed still
+          # gets patched.
+          BUILDKIT_CONTAINER="$(docker ps --filter name=buildx_buildkit_helve-builder --format '{{.Names}}' | head -1)"
+          if [ -n "$BUILDKIT_CONTAINER" ]; then
+            docker cp /etc/docker/certs.d/ctr.int.techboredom.com:8443/ca.crt \
+              "$BUILDKIT_CONTAINER:/usr/local/share/ca-certificates/int-techboredom.crt"
+            docker exec "$BUILDKIT_CONTAINER" update-ca-certificates
+            docker restart "$BUILDKIT_CONTAINER"
+            # Buildx's client loses its connection to the node when its
+            # container restarts underneath it; --bootstrap reconnects and
+            # waits for it to be ready again rather than racing the next step.
+            docker buildx inspect --bootstrap
+          else
+            echo "No buildx_buildkit_helve-builder* container found - the CA trust step below was skipped."
+            exit 1
+          fi
+
       - name: Build and push multi-arch image
         run: |
           TAG="$(git rev-parse --short HEAD)"
