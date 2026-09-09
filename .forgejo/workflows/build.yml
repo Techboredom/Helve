@@ -136,38 +136,49 @@ jobs:
             exit 1
           fi
 
-          # The previous attempt copied the cert into the container AFTER
-          # creating it, then restarted so a fresh buildkitd would pick it
-          # up. Still failed, identically - because `docker buildx inspect
-          # --bootstrap`, called immediately after `create` to actually
-          # start the container, is what starts buildkitd for the *first*
-          # time, and buildkitd reads and validates its configured ca=[...]
-          # paths eagerly at that first startup, not lazily on first push.
-          # It was already dead before the script ever reached the
-          # copy-the-cert-in step below it. The cert has to exist before
-          # the container's very first boot, full stop - there's no
-          # "start it, then fix it" ordering that works here.
+          # The actual bug, isolated by testing --driver-opt image= and
+          # --buildkitd-config SEPARATELY rather than only ever combined:
+          # image resolution was already fine (a real, pushed Harbor
+          # reference is correctly pulled and used). --buildkitd-config
+          # alone, on the plain default image, failed with the identical
+          # "no such file" error - proving the image was never the
+          # variable that mattered.
           #
-          # That means back to baking it into a custom image (the only way
-          # to guarantee the file predates first boot) - but pushed to
-          # Harbor this time, not left as a local-only tag. Confirmed last
-          # attempt, on this exact host: --driver-opt image=<name> tries to
-          # *pull* the named image rather than checking the local store
-          # first (moby/moby#49453), so a purely local tag isn't reliably
-          # used even when `docker images` shows it built and present -
-          # that's what silently substituted the plain default image in
-          # and produced the CA-file-missing error in the first place.
-          #
-          # DOCKER_BUILDKIT=0 on this one build+push forces the classic,
-          # non-buildx builder - deliberately not routed through
-          # helve-builder (which doesn't trust Harbor yet; fixing that is
-          # the entire point) or whatever the ambient default builder
-          # happens to be. Uses the plain Docker daemon's own push instead,
-          # which already trusts Harbor via this host's system
-          # trust-anchors (proven: `docker login` above already works)
-          # completely independent of anything buildx/buildkit-related.
+          # What --buildkitd-config actually does: `docker buildx create`
+          # reads each configured ca=[...] file's *content* from THIS HOST,
+          # right then, and bakes those bytes into the container's own
+          # config bundle at a path it chooses itself
+          # (/etc/buildkit/certs/<sanitized-host>/<file>, confirmed
+          # directly from a real create's own logged output). It is not
+          # validating that some path is reachable inside whatever image
+          # ends up running - it's reading the file from the host to embed
+          # it. Every earlier attempt referenced
+          # /usr/local/share/ca-certificates/internal-ca.crt in the toml,
+          # which never existed on the actual host at any point - only
+          # ever inside images and containers, which this step doesn't
+          # look at - so it always failed identically regardless of what
+          # image was involved or what was baked into it.
+          rm -rf /tmp/helve-ca && mkdir -p /tmp/helve-ca
+          # -L dereferences: this host's copy is a symlink (Arch's
+          # trust-anchor extraction), and buildx needs to read real bytes
+          # here, not a link.
+          cp -L "$CA_SRC" /tmp/helve-ca/internal-ca.crt
+
+          # --driver-opt image=<name> still needs a real, pullable
+          # reference - confirmed separately: a purely local, never-pushed
+          # tag isn't reliably used even when `docker images` shows it
+          # built and present (moby/moby#49453). Unrelated to the fix
+          # above; both are independently necessary. DOCKER_BUILDKIT=0
+          # forces the classic, non-buildx builder for this one build+push
+          # - deliberately not routed through helve-builder (which doesn't
+          # trust Harbor yet; fixing that is the entire point) or whatever
+          # builder happens to be ambient at this point in the script.
+          # Uses the plain Docker daemon's own push instead, which already
+          # trusts Harbor via this host's system trust-anchors (proven:
+          # `docker login` above already works) independent of anything
+          # buildx/buildkit-related.
           rm -rf /tmp/helve-buildkit-ca && mkdir -p /tmp/helve-buildkit-ca
-          cp -L "$CA_SRC" /tmp/helve-buildkit-ca/internal-ca.pem
+          cp /tmp/helve-ca/internal-ca.crt /tmp/helve-buildkit-ca/internal-ca.pem
           cat > /tmp/helve-buildkit-ca/Dockerfile <<'DOCKERFILE'
           FROM moby/buildkit:buildx-stable-1
           COPY internal-ca.pem /usr/local/share/ca-certificates/internal-ca.crt
@@ -177,14 +188,13 @@ jobs:
           DOCKER_BUILDKIT=0 docker build -t "$BUILDKIT_IMAGE" /tmp/helve-buildkit-ca
           docker push "$BUILDKIT_IMAGE"
 
-          # The directive BuildKit's registry client actually consults for
-          # its own push path - still needed even with the cert baked into
-          # the image's OS trust store, per moby/buildkit#5576: BuildKit's
-          # registry client doesn't reliably fall back to the OS cert pool
-          # regardless of what's in it, baked in or not.
+          # Read from THIS HOST by buildx at create time, per the actual
+          # bug above - not from inside the image built just above, which
+          # is a separate, independently-necessary fix for a different
+          # problem (image resolution, not registry trust).
           cat > /tmp/helve-buildkitd.toml <<TOML
           [registry."ctr.int.techboredom.com:8443"]
-            ca = ["/usr/local/share/ca-certificates/internal-ca.crt"]
+            ca = ["/tmp/helve-ca/internal-ca.crt"]
           TOML
 
           # Recreated every run rather than reused: both --driver-opt image=
