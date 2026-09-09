@@ -47,6 +47,26 @@ than rewritten.
 
 ### Added
 
+- **The app wears the Helve palette.** `frontend/tokens.css` is a verbatim
+  copy of the design system's `tokens.css` and is the only place colour is
+  defined; `style.css` maps those onto its own names and now contains no hex
+  literals at all. Where the app needs a step the brand does not ship — a
+  third surface for things that lift off a panel, and a fourth status level
+  (`serious`, which the pod-phase mapping uses) — it is derived with
+  `color-mix` from tokens that it does, so it re-pitches with the theme
+  instead of being pinned to one mode.
+
+  Three things the brand rules forbade came out: the violet glow was a second
+  accent hue, the starfield belonged to a name meaning the upper air rather
+  than an axe, and the template-notes panel was tinted with the accent, which
+  means "you can act on this" and nothing else. The destructive button also
+  stopped being a solid red fill — every other status in the app is drawn as
+  a tint plus a border, and a filled one needed a white ink forced onto a
+  deliberately desaturated red.
+
+- **Archivo and Commit Mono, self-hosted** (`frontend/fonts/`), as the brand
+  requires — neither ships with any OS. SIL OFL 1.1, licences alongside.
+
 - `0021_rename_notes_to_helve.sql` updates the two seeded template `notes`
   that name the product in text an admin reads. Written as a new migration
   rather than an edit to 0006/0007: sqlx checksums applied migrations, so

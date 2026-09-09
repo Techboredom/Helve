@@ -1,65 +1,110 @@
+/* Helve — app.
+
+   ---------- fonts ----------
+   Self-hosted, as the brand requires: neither family ships with any OS, so
+   without these the app renders in fallbacks and none of its typography is
+   the brand's. Both are SIL OFL 1.1; the licence texts sit beside the files
+   in fonts/, which the OFL asks for. Archivo is one file for both weights —
+   it is a variable font, so font-weight: 400 500 instances from a single
+   face rather than fetching a second.
+
+   Paths are relative to the dist root, where trunk puts the built CSS and
+   where copy-dir puts fonts/. */
+
+@font-face {
+  font-family: "Archivo";
+  src: url("fonts/archivo-latin-variable.woff2") format("woff2-variations");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Commit Mono";
+  src: url("fonts/commit-mono-latin-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Commit Mono";
+  src: url("fonts/commit-mono-latin-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------- colour ----------
+   Every value below resolves to a token from tokens.css, which index.html
+   loads first and which is the single source of colour truth. Nothing here
+   is a literal. Where the app needs a step the brand does not ship — a third
+   surface, a fourth status level — it is derived with color-mix from tokens
+   that it does, so it re-pitches with the theme instead of being pinned to
+   one mode. */
+
 :root {
   color-scheme: dark;
-  /* Dashboard chrome, from the design system's dark chart tokens. */
-  --page: #0d0d0d;
-  --surface: #1a1a19;
-  --surface-raised: #202020;
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: #2c2c2a;
-  --text-primary: #ffffff;
-  --text-secondary: #c3c2b7;
-  --text-muted: #898781;
 
-  /* Accent = categorical slot 1 (blue), dark step. */
-  --accent: #3987e5;
-  --accent-ink: #ffffff;
+  /* The brand ships two surfaces. A dashboard needs three: the page, the
+     panels on it, and the things that have to lift off a panel. The third is
+     the raised tone stepped toward the ink, which moves the right way in
+     both themes. */
+  --page: var(--helve-base);
+  --surface: var(--helve-raised);
+  --surface-raised: color-mix(in srgb, var(--helve-raised) 94%, var(--helve-text));
 
-  /* Status palette — fixed, never themed. */
-  --status-good: #0ca30c;
-  --status-warning: #fab219;
-  --status-serious: #ec835a;
-  --status-critical: #d03b3b;
+  --border: var(--helve-border);
+  --border-strong: color-mix(in srgb, var(--helve-border) 82%, var(--helve-text));
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
+  --text-primary: var(--helve-text);
+  --text-secondary: color-mix(in srgb, var(--helve-text) 78%, var(--helve-base));
+  --text-muted: var(--helve-muted);
+
+  /* Hickory. Interaction only — links, primary buttons, focus rings, the
+     active tab. Never a status, never decoration. */
+  --accent: var(--helve-accent);
+  --accent-ink: var(--helve-accent-on);
+
+  /* Status. These are real pod phases, which is what the brand's status
+     palette is for, and they are deliberately desaturated: a namespace view
+     shows many at once and saturated signal colours turn into noise.
+     `serious` sits between pending and failed — the app has four levels and
+     the brand ships three, so it is mixed from two of them rather than
+     invented as a new hue. */
+  --status-good: var(--helve-running);
+  --status-warning: var(--helve-pending);
+  --status-serious: color-mix(in srgb, var(--helve-failed) 58%, var(--helve-pending));
+  --status-critical: var(--helve-failed);
+
+  --radius-sm: var(--helve-radius);
+  --radius-md: var(--helve-radius-lg);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
 
-  /* Background treatment, shared with the marketing site so the two read as
-     one product. Tokens rather than literals so the light theme can
-     re-pitch it instead of inheriting a dimmed dark version. */
-  --grid-line: rgba(255, 255, 255, 0.03);
+  /* Background, shared with the marketing site so the two read as one
+     product: a fine graph-paper grid and one warm bloom. One hue — the brand
+     forbids a second accent, which is what retired the old blue-and-violet
+     pair and the starfield along with them. */
+  --grid-line: color-mix(in srgb, var(--helve-text) 4%, transparent);
   --grid-size: 48px;
-  --star: rgba(255, 255, 255, 0.7);
-  --glow-a: rgba(57, 135, 229, 0.28);
-  --glow-b: rgba(120, 90, 220, 0.20);
+  --glow: color-mix(in srgb, var(--helve-accent) 12%, transparent);
+
+  /* Scrims and shadows read as absence of light in both themes, so they stay
+     black rather than following the ink. */
+  --scrim: rgb(0 0 0 / 0.6);
+  --shadow-edge: rgb(0 0 0 / 0.34);
 }
 
-/* Validated light-mode steps from the design system's chart-chrome/ink
-   tokens (dataviz skill references/palette.md) — text-muted, accent-ink,
-   and the status palette are the same in both modes, so they're left
-   inherited from :root rather than repeated here. */
+/* tokens.css re-pitches every --helve-* value for light, so almost nothing
+   needs repeating here. Only the two treatments whose *strength* differs:
+   tobacco on near-white carries far more weight than straw on near-black. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --page: #f9f9f7;
-  --surface: #fcfcfb;
-  --surface-raised: #ffffff;
-  --border: rgba(11, 11, 11, 0.1);
-  --border-strong: #e1e0d9;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-
-  --accent: #2a78d6;
-
-  /* No starfield on a light background — the dots read as dust or a dirty
-     screen rather than space. The grid carries the geometry instead. */
-  --grid-line: rgba(11, 11, 11, 0.045);
-  --star: transparent;
-  --glow-a: rgba(42, 120, 214, 0.13);
-  --glow-b: rgba(120, 90, 220, 0.09);
+  --grid-line: color-mix(in srgb, var(--helve-text) 6%, transparent);
+  --glow: color-mix(in srgb, var(--helve-accent) 6%, transparent);
+  --shadow-edge: rgb(0 0 0 / 0.16);
 }
 
 * {
@@ -70,7 +115,7 @@ body {
   margin: 0;
   background: var(--page);
   color: var(--text-primary);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--helve-sans);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
 }
@@ -172,36 +217,9 @@ header {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(46% 46% at 26% 22%, var(--glow-a), transparent 68%),
-    radial-gradient(42% 44% at 78% 16%, var(--glow-b), transparent 70%),
-    radial-gradient(60% 40% at 50% 4%, var(--glow-a), transparent 74%);
+    radial-gradient(50% 50% at 28% 18%, var(--glow), transparent 70%),
+    radial-gradient(44% 44% at 76% 12%, var(--glow), transparent 72%);
   animation: helve-drift 38s ease-in-out infinite alternate;
-}
-
-/* Fixed positions rather than a repeating tile, so there's no visible seam.
-   Light mode sets --star: transparent, which removes this entirely. */
-.login-screen::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-repeat: no-repeat;
-  background-image:
-    radial-gradient(1.5px 1.5px at 9% 16%, var(--star), transparent 100%),
-    radial-gradient(1px 1px at 18% 58%, var(--star), transparent 100%),
-    radial-gradient(1.5px 1.5px at 24% 29%, var(--star), transparent 100%),
-    radial-gradient(1px 1px at 33% 78%, var(--star), transparent 100%),
-    radial-gradient(2px 2px at 39% 12%, var(--star), transparent 100%),
-    radial-gradient(1px 1px at 46% 41%, var(--star), transparent 100%),
-    radial-gradient(1.5px 1.5px at 55% 84%, var(--star), transparent 100%),
-    radial-gradient(1px 1px at 61% 22%, var(--star), transparent 100%),
-    radial-gradient(1.5px 1.5px at 68% 52%, var(--star), transparent 100%),
-    radial-gradient(1px 1px at 74% 9%, var(--star), transparent 100%),
-    radial-gradient(2px 2px at 81% 68%, var(--star), transparent 100%),
-    radial-gradient(1px 1px at 88% 34%, var(--star), transparent 100%),
-    radial-gradient(1.5px 1.5px at 93% 74%, var(--star), transparent 100%),
-    radial-gradient(1px 1px at 4% 62%, var(--star), transparent 100%);
 }
 
 @keyframes helve-drift {
@@ -344,7 +362,7 @@ h1 {
 .error {
   background: color-mix(in srgb, var(--status-critical) 14%, transparent);
   border: 1px solid var(--status-critical);
-  color: #ff8f8f;
+  color: color-mix(in srgb, var(--status-critical) 62%, var(--helve-text));
   padding: 10px 14px;
   border-radius: var(--radius-sm);
   margin-bottom: var(--space-4);
@@ -353,7 +371,7 @@ h1 {
 .success {
   background: color-mix(in srgb, var(--status-good) 14%, transparent);
   border: 1px solid var(--status-good);
-  color: #6fe06f;
+  color: color-mix(in srgb, var(--status-good) 62%, var(--helve-text));
   padding: 10px 14px;
   border-radius: var(--radius-sm);
   margin-top: var(--space-4);
@@ -429,10 +447,10 @@ h1 {
      is a soft shadow on an edge only while there is more table past it —
      and it disappears once you reach the end, so it never lies. */
   background:
-    linear-gradient(to right, var(--surface) 40%, rgba(0, 0, 0, 0)) 0 0 / 44px 100% no-repeat local,
-    linear-gradient(to left, var(--surface) 40%, rgba(0, 0, 0, 0)) 100% 0 / 44px 100% no-repeat local,
-    linear-gradient(to right, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0)) 0 0 / 18px 100% no-repeat scroll,
-    linear-gradient(to left, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0)) 100% 0 / 18px 100% no-repeat scroll;
+    linear-gradient(to right, var(--surface) 40%, transparent) 0 0 / 44px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 40%, transparent) 100% 0 / 44px 100% no-repeat local,
+    linear-gradient(to right, var(--shadow-edge), transparent) 0 0 / 18px 100% no-repeat scroll,
+    linear-gradient(to left, var(--shadow-edge), transparent) 100% 0 / 18px 100% no-repeat scroll;
   background-color: var(--surface);
 
   /* macOS hides overlay scrollbars until something is already scrolling,
@@ -498,7 +516,7 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: color-mix(in srgb, var(--helve-text) 4%, transparent);
 }
 
 .badge {
@@ -566,8 +584,8 @@ tbody tr:hover {
 
 .template-notes {
   max-width: 640px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: 1px solid var(--accent);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-3);
@@ -722,7 +740,7 @@ tbody tr:hover {
 
 .deploy-form textarea {
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--helve-mono);
   font-size: 13px;
 }
 
@@ -766,9 +784,9 @@ tbody tr:hover {
 
 .danger-button {
   justify-self: start;
-  background: var(--status-critical);
-  color: #ffffff;
-  border: none;
+  background: color-mix(in srgb, var(--status-critical) 14%, transparent);
+  color: color-mix(in srgb, var(--status-critical) 62%, var(--helve-text));
+  border: 1px solid var(--status-critical);
   border-radius: var(--radius-sm);
   padding: 11px 20px;
   font-size: 14px;
@@ -847,7 +865,7 @@ tbody tr:hover {
    .credential-value's green: that colour marks a secret, and this is a
    DNS name that is safe to read out. */
 .access-internal {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--helve-mono);
   font-size: 11px;
   color: var(--text-muted);
   background: var(--page);
@@ -859,7 +877,7 @@ tbody tr:hover {
 }
 
 .credential-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--helve-mono);
   font-size: 12px;
   color: var(--status-good);
   background: var(--page);
@@ -875,7 +893,7 @@ tbody tr:hover {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1057,7 +1075,7 @@ tbody tr:hover {
   padding: var(--space-3);
   max-height: 360px;
   overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--helve-mono);
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-secondary);

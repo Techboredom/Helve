@@ -1,0 +1,61 @@
+/* helve-tokens.css
+   Palette: blued steel base, hickory accent.
+   Dark is the default theme. Light is opt-in via [data-theme="light"].
+   The accent is a pair, not a single hue — straw on dark, tobacco on light. */
+
+:root {
+  /* steel */
+  --helve-base:    #12171A;
+  --helve-raised:  #1A2125;
+  --helve-border:  #2B343A;
+  --helve-text:    #C9D2D6;
+  --helve-muted:   #7C8A91;
+
+  /* hickory — interaction only: links, primary buttons, focus rings, active nav */
+  --helve-accent:     #D9BE7E;
+  --helve-accent-on:  #3A2E12;  /* text on an accent fill, never black */
+
+  /* status — deliberately desaturated; a namespace view shows many at once */
+  --helve-running: #7CA06A;
+  --helve-pending: #C98A3C;
+  --helve-failed:  #C25A4C;
+
+  --helve-radius: 8px;
+  --helve-radius-lg: 12px;
+
+  --helve-sans: "Archivo", "Public Sans", system-ui, -apple-system, sans-serif;
+  --helve-mono: "Commit Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+[data-theme="light"] {
+  --helve-base:    #F4F5F2;
+  --helve-raised:  #FFFFFF;
+  --helve-border:  #DCDFD9;
+  --helve-text:    #171C1F;
+  --helve-muted:   #5F6B70;
+
+  --helve-accent:     #7A6524;
+  --helve-accent-on:  #F6F0DD;
+
+  --helve-running: #47693A;
+  --helve-pending: #96601F;
+  --helve-failed:  #9C3A2E;
+}
+
+/* Follow the OS only when the site hasn't set a theme explicitly. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --helve-base:    #F4F5F2;
+    --helve-raised:  #FFFFFF;
+    --helve-border:  #DCDFD9;
+    --helve-text:    #171C1F;
+    --helve-muted:   #5F6B70;
+
+    --helve-accent:     #7A6524;
+    --helve-accent-on:  #F6F0DD;
+
+    --helve-running: #47693A;
+    --helve-pending: #96601F;
+    --helve-failed:  #9C3A2E;
+  }
+}

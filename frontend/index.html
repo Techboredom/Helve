@@ -4,7 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Helve</title>
+    <!-- tokens.css first: style.css maps these onto its own names and defines
+         no colours of its own. This file is a verbatim copy of design/tokens.css
+         in the Helve-Site repo, which is the single source of colour truth —
+         re-copy it rather than editing it here, or the two drift. -->
+    <link data-trunk rel="css" href="tokens.css" />
     <link data-trunk rel="css" href="style.css" />
+    <!-- Self-hosted per the brand rules; neither family ships with any OS.
+         Copied to the dist root so style.css's @font-face can reach them at
+         /fonts/. -->
+    <link data-trunk rel="copy-dir" href="fonts" />
     <!-- Inline rather than a copied file. The mark is fill="currentColor" and
          a linked SVG favicon has no inherited colour, so it would resolve to
          black and vanish against a dark tab strip; the fill is set here, at
