@@ -136,44 +136,62 @@ jobs:
             exit 1
           fi
 
-          # Baked into a custom image rather than docker cp'd into a running
-          # container: the cert has to exist before buildkitd's own process
-          # starts and parses its config (it loads CA files into an in-memory
-          # pool once, not per-request), so it needs to be present from the
-          # container's very first boot - not added after the fact, which is
-          # exactly the ordering the previous attempts got wrong. -L
-          # dereferences: this host's copy is a symlink (Arch's trust-anchor
-          # extraction), and `docker build`'s COPY needs the real bytes, not
-          # a link to a host path that won't exist inside the build context.
-          rm -rf /tmp/helve-buildkit-ca && mkdir -p /tmp/helve-buildkit-ca
-          cp -L "$CA_SRC" /tmp/helve-buildkit-ca/internal-ca.pem
-          cat > /tmp/helve-buildkit-ca/Dockerfile <<'DOCKERFILE'
-          FROM moby/buildkit:buildx-stable-1
-          COPY internal-ca.pem /usr/local/share/ca-certificates/internal-ca.crt
-          DOCKERFILE
-          docker build -t helve-buildkit-with-ca /tmp/helve-buildkit-ca
-
           # The directive BuildKit's registry client actually consults -
-          # this is the piece all four earlier attempts were missing
-          # entirely. Path is inside the image built above, not this host.
+          # this is the piece the four earlier attempts were missing
+          # entirely (they all patched the OS cert store instead). Path is
+          # inside the builder container, not this host - populated below.
           cat > /tmp/helve-buildkitd.toml <<TOML
           [registry."ctr.int.techboredom.com:8443"]
             ca = ["/usr/local/share/ca-certificates/internal-ca.crt"]
           TOML
 
-          # Both buildkitd-config and a custom image only take effect at
-          # container creation, so the builder is fully recreated every run
-          # rather than reused - the previous "leave it running between
-          # runs" optimization doesn't survive needing either of these.
-          # Rebuilding a 2-line Dockerfile FROM an already-pulled base is a
-          # few seconds, nowhere near the QEMU/binfmt bootstrap cost that
-          # optimization actually existed to avoid, so simple and correct
-          # wins over clever-but-untested here.
+          # --buildkitd-config only takes effect at container creation, so
+          # the builder is fully recreated every run rather than reused -
+          # the previous "leave it running between runs" optimization
+          # doesn't survive needing it. A first attempt at this fix also
+          # baked the cert into a custom image via --driver-opt image=, to
+          # sidestep needing to copy the cert in after boot at all - that
+          # made the CA-file-missing error go away in favor of a NEW one,
+          # which turned out to mean buildx wasn't actually using that
+          # image: confirmed via moby/moby#49453 and matching docker/buildx
+          # reports that --driver-opt image= tries to *pull* the named
+          # image rather than checking the local image store first, so a
+          # purely local, never-pushed tag isn't reliably honored even
+          # though `docker images` shows it right there. Dropped that
+          # entirely rather than fight it - this now uses the same plain
+          # default image every prior successful run of this step already
+          # used, and installs the cert into the container after it starts
+          # instead, the one piece of this already proven to work correctly
+          # on this exact host.
           docker buildx rm helve-builder 2>/dev/null || true
           docker buildx create --name helve-builder --driver docker-container \
-            --driver-opt image=helve-buildkit-with-ca \
             --buildkitd-config /tmp/helve-buildkitd.toml \
             --use
+          docker buildx inspect --bootstrap
+
+          BUILDKIT_CONTAINER="$(docker ps --filter name=buildx_buildkit_helve-builder --format '{{.Names}}' | head -1)"
+          if [ -z "$BUILDKIT_CONTAINER" ]; then
+            echo "No buildx_buildkit_helve-builder* container found after create - can't install the CA."
+            exit 1
+          fi
+
+          # -L dereferences: this host's copy is a symlink (Arch's
+          # trust-anchor extraction points /etc/ssl/certs/*.pem into
+          # /etc/ca-certificates/extracted/cadir/), and without it docker cp
+          # copies the symlink object itself - which then points at a host
+          # path that doesn't exist inside the container, so later reads
+          # through it fail even though the copy reports success. Verified
+          # directly against this exact host, not assumed.
+          docker exec "$BUILDKIT_CONTAINER" mkdir -p /usr/local/share/ca-certificates
+          docker cp -L "$CA_SRC" "$BUILDKIT_CONTAINER:/usr/local/share/ca-certificates/internal-ca.crt"
+
+          # Restarted once so a fresh buildkitd process starts with the
+          # cert already in place, rather than depending on whether its
+          # registry config is read eagerly at daemon boot or lazily on
+          # first push to that host - correct either way, since this
+          # guarantees the file predates whichever moment that turns out
+          # to be.
+          docker restart "$BUILDKIT_CONTAINER"
           docker buildx inspect --bootstrap
 
       - name: Build and push multi-arch image
