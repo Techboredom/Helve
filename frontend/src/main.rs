@@ -95,10 +95,13 @@ fn AppShell(user: UserInfo, current_user: RwSignal<Option<UserInfo>>, theme: RwS
     view! {
         <main>
             <header>
-                // The mark deliberately isn't here, only in the favicon: this
-                // header already runs to ~1130px of a ~1136px track (main caps
-                // at 1200px), so adding it — at any size, even 16px — wraps the
-                // account controls onto a second row at every viewport width.
+<svg class="brand-mark" viewBox="47 1 87 180" fill="none" role="img" aria-labelledby="header-mark-title">
+                    <title id="header-mark-title">"Helve"</title>
+                    <g fill="currentColor">
+                        <path d="M62 1c5 0 10 2 10 10 1 13 0 23-4 35-4 14-3 26 2 40 5 16 8 24 11 38s5 22 7 32 1 19-6 22-15 0-18-8 0-16 4-22c-2-10-4-16-6-26-3-14-7-24-9-36-3-16-6-30-4-42 1-13-1-19 0-25 .5-8 0-14 5-17Z"/>
+                        <path d="m51 14 23-2c20 1 36-2 47-5 8 3 13 12 13 26 0 17-9 33-23 40-13-11-24-22-35-27-8 0-17-1-25-2Z"/>
+                    </g>
+                </svg>
                 <h1>"Helve"</h1>
                 <nav class="tabs">
                     <button

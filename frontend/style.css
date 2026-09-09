@@ -165,6 +165,14 @@ header {
   margin-bottom: var(--space-5);
 }
 
+.brand-mark {
+  display: block;
+  flex: none;
+  height: 22px;
+  width: auto;
+  color: var(--text-primary);
+}
+
 .user-info {
   display: flex;
   align-items: center;
