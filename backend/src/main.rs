@@ -17,6 +17,7 @@ mod watch;
 mod ws;
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use axum::routing::{any, get, post, put};
 use axum::Router;
@@ -86,7 +87,25 @@ async fn main() -> anyhow::Result<()> {
     // Tries an in-cluster service account first, then falls back to the local kubeconfig.
     let client = Client::try_default().await?;
 
-    let pg = PgPoolOptions::new().max_connections(5).connect(&args.database_url).await?;
+    // idle_timeout below sqlx's own default (10 minutes) deliberately: this
+    // connects through PgBouncer (postgres/pooler.yaml in Helve-Deploy) in
+    // transaction mode, and PgBouncer's own server_idle_timeout - 600s,
+    // confirmed live in its generated config, since CNPG sets no override -
+    // is the *same* 10 minutes sqlx defaults to. Two clocks racing on an
+    // identical interval means the app sometimes loses: it hands out a
+    // connection PgBouncer already closed server-side a moment earlier,
+    // caught reactively by sqlx's own test-before-acquire ping (on by
+    // default) as "ping on idle connection returned error", surfacing as a
+    // several-second readyz 503 roughly every ~10 minutes before the pool
+    // recovers on its own. Recycling client-side well before PgBouncer's
+    // timeout removes the race entirely rather than just tolerating it -
+    // confirmed via the pooler's own live pgbouncer.ini, not assumed from
+    // PgBouncer's documented default.
+    let pg = PgPoolOptions::new()
+        .max_connections(5)
+        .idle_timeout(Duration::from_secs(240))
+        .connect(&args.database_url)
+        .await?;
     sqlx::migrate!().run(&pg).await?;
     bootstrap_admin(&pg, args.admin_bootstrap_password.as_deref()).await?;
 
