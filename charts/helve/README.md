@@ -168,7 +168,19 @@ Two backends, chosen with `homeDrives.mode`:
 
 File ownership and permissions on whatever the mount resolves to are the
 shared filesystem's own concern (its export config, UID mapping, etc.) —
-Helve does not `chown` anything itself.
+Helve does not `chown` anything itself. This matters more for `hostPath`
+than `pvc`: Kubernetes' `fsGroup` (which a per-user UID/GID set on the
+Users tab turns into `runAsUser`/`runAsGroup`/`fsGroup` on the pod) does
+**not** apply to `hostPath` volumes at all — a directory Kubernetes just
+created with `DirectoryOrCreate` is owned by whatever the kubelet itself
+runs as, and setting a UID/GID doesn't get that UID write access to it
+automatically. Either pre-create each user's directory on the shared
+filesystem with matching ownership, configure the filesystem's own export
+to map UIDs the way you need (e.g. NFS UID mapping), or leave `uid`/`gid`
+unset for users whose images already run fine as whatever user the
+filesystem already grants access to. `pvc` mode doesn't have this problem
+for any CSI driver that declares `fsGroupPolicy: File` — true of most
+modern ones (Ceph, NFS-CSI, ...) — since `fsGroup` there does apply.
 
 ## Guards
 

@@ -1025,9 +1025,13 @@ IP directly over plain TCP like any other in-cluster client would.
   path on whichever node it lands on**, not just the one subdirectory
   Kubernetes' own volume isolation implies — a `hostPath` volume is a real
   node-filesystem access grant, scoped by convention (the path Helve
-  constructs) rather than by anything Kubernetes enforces. File ownership
-  and permissions under that path are the shared filesystem's own concern
-  (its export config, UID mapping, etc.); Helve does not `chown` anything
+  constructs) rather than by anything Kubernetes enforces. It also doesn't
+  benefit from a per-user UID/GID (Users tab) the way most volumes do:
+  Kubernetes' `fsGroup` mechanism, which is what normally grants a
+  non-root container write access to a volume it doesn't already own,
+  explicitly does not apply to `hostPath` volumes — file ownership and
+  permissions there are entirely the shared filesystem's own concern (its
+  export config, UID mapping, etc.); Helve does not `chown` anything
   itself. See `charts/helve/README.md`'s "Home directories" section before
   enabling `homeDrives.mode=hostPath`.
 - Templates (Ollama/vLLM/SGLang/JupyterLab/RStudio) are unauthenticated *at
