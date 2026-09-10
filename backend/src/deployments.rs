@@ -179,13 +179,15 @@ fn node_selector_for(user: &CurrentUser) -> Option<BTreeMap<String, String>> {
 /// to be. `None` if the user has neither set, leaving the image's own
 /// default untouched. `uid`/`gid` are independent: either can be set alone.
 fn security_context_for(user: &CurrentUser) -> Option<PodSecurityContext> {
-    if user.uid.is_none() && user.gid.is_none() {
+    if user.uid.is_none() && user.gid.is_none() && user.supplemental_groups.is_empty() {
         return None;
     }
     Some(PodSecurityContext {
         run_as_user: user.uid.map(i64::from),
         run_as_group: user.gid.map(i64::from),
         fs_group: user.gid.map(i64::from),
+        supplemental_groups: (!user.supplemental_groups.is_empty())
+            .then(|| user.supplemental_groups.iter().map(|&g| i64::from(g)).collect()),
         ..Default::default()
     })
 }

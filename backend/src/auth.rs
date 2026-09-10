@@ -86,6 +86,8 @@ pub struct CurrentUser {
     /// Admin-set UID/GID, if any — see `common::UserInfo::uid`/`gid`.
     pub uid: Option<i32>,
     pub gid: Option<i32>,
+    /// Admin-set extra GIDs — see `common::UserInfo::supplemental_groups`.
+    pub supplemental_groups: Vec<i32>,
 }
 
 #[derive(FromRow)]
@@ -96,6 +98,7 @@ struct SessionUserRow {
     node_label: Option<String>,
     uid: Option<i32>,
     gid: Option<i32>,
+    supplemental_groups: Vec<i32>,
 }
 
 impl FromRequestParts<AppState> for CurrentUser {
@@ -112,7 +115,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         let jar = CookieJar::from_request_parts(parts, state).await.expect("infallible");
         if let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) {
             let row: Option<SessionUserRow> = sqlx::query_as(
-                "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid FROM sessions s \
+                "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, u.supplemental_groups FROM sessions s \
                  JOIN users u ON u.id = s.user_id \
                  WHERE s.token = $1 AND s.expires_at > now()",
             )
@@ -123,7 +126,15 @@ impl FromRequestParts<AppState> for CurrentUser {
 
             let row = row.ok_or(ApiError::Unauthorized)?;
             let role = if row.role == "admin" { Role::Admin } else { Role::User };
-            return Ok(CurrentUser { id: row.id, username: row.username, role, node_label: row.node_label, uid: row.uid, gid: row.gid });
+            return Ok(CurrentUser {
+                id: row.id,
+                username: row.username,
+                role,
+                node_label: row.node_label,
+                uid: row.uid,
+                gid: row.gid,
+                supplemental_groups: row.supplemental_groups,
+            });
         }
 
         let bearer =
@@ -146,6 +157,7 @@ struct ApiTokenUserRow {
     node_label: Option<String>,
     uid: Option<i32>,
     gid: Option<i32>,
+    supplemental_groups: Vec<i32>,
 }
 
 /// Resolves an `Authorization: Bearer <token>` value to the account that
@@ -154,7 +166,7 @@ struct ApiTokenUserRow {
 async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<CurrentUser>, ApiError> {
     let hash = hash_token(token);
     let row: Option<ApiTokenUserRow> = sqlx::query_as(
-        "SELECT t.id AS token_id, u.id, u.username, u.role, u.node_label, u.uid, u.gid \
+        "SELECT t.id AS token_id, u.id, u.username, u.role, u.node_label, u.uid, u.gid, u.supplemental_groups \
          FROM api_tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = $1",
     )
@@ -171,6 +183,7 @@ async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<Cu
         node_label: row.node_label,
         uid: row.uid,
         gid: row.gid,
+        supplemental_groups: row.supplemental_groups,
     }))
 }
 
@@ -179,8 +192,12 @@ async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<Cu
 /// origin's own session (see `proxy.rs`), which lives on a different host and
 /// therefore never receives that cookie.
 pub async fn user_by_id(pg: &sqlx::PgPool, id: i32) -> Result<Option<CurrentUser>, ApiError> {
-    let row: Option<SessionUserRow> =
-        sqlx::query_as("SELECT id, username, role, node_label, uid, gid FROM users WHERE id = $1").bind(id).fetch_optional(pg).await?;
+    let row: Option<SessionUserRow> = sqlx::query_as(
+        "SELECT id, username, role, node_label, uid, gid, supplemental_groups FROM users WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pg)
+    .await?;
     Ok(row.map(|row| CurrentUser {
         id: row.id,
         username: row.username,
@@ -188,6 +205,7 @@ pub async fn user_by_id(pg: &sqlx::PgPool, id: i32) -> Result<Option<CurrentUser
         node_label: row.node_label,
         uid: row.uid,
         gid: row.gid,
+        supplemental_groups: row.supplemental_groups,
     }))
 }
 
@@ -216,6 +234,7 @@ struct UserAuthRow {
     node_label: Option<String>,
     uid: Option<i32>,
     gid: Option<i32>,
+    supplemental_groups: Vec<i32>,
 }
 
 pub async fn login(
@@ -233,11 +252,12 @@ pub async fn login(
         ));
     }
 
-    let row: Option<UserAuthRow> =
-        sqlx::query_as("SELECT id, username, password_hash, role, node_label, uid, gid FROM users WHERE username = $1")
-            .bind(&req.username)
-            .fetch_optional(&state.pg)
-            .await?;
+    let row: Option<UserAuthRow> = sqlx::query_as(
+        "SELECT id, username, password_hash, role, node_label, uid, gid, supplemental_groups FROM users WHERE username = $1",
+    )
+    .bind(&req.username)
+    .fetch_optional(&state.pg)
+    .await?;
 
     let row = row.filter(|r| verify_password(&r.password_hash, &req.password));
     let Some(row) = row else {
@@ -279,7 +299,15 @@ pub async fn login(
     let role = if row.role == "admin" { Role::Admin } else { Role::User };
     Ok((
         jar.add(cookie),
-        Json(UserInfo { id: row.id, username: row.username, role, node_label: row.node_label, uid: row.uid, gid: row.gid }),
+        Json(UserInfo {
+            id: row.id,
+            username: row.username,
+            role,
+            node_label: row.node_label,
+            uid: row.uid,
+            gid: row.gid,
+            supplemental_groups: row.supplemental_groups,
+        }),
     ))
 }
 
@@ -293,7 +321,15 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Result<Coo
 }
 
 pub async fn me(user: CurrentUser) -> Json<UserInfo> {
-    Json(UserInfo { id: user.id, username: user.username, role: user.role, node_label: user.node_label, uid: user.uid, gid: user.gid })
+    Json(UserInfo {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        node_label: user.node_label,
+        uid: user.uid,
+        gid: user.gid,
+        supplemental_groups: user.supplemental_groups,
+    })
 }
 
 /// Lets a logged-in user change their own password, proving they know the

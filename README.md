@@ -816,6 +816,27 @@ its effects are visible to them indirectly (file ownership on anything
 they write to a shared mount), so if that ever needs to be self-service
 this would be the first thing to reconsider.
 
+An admin can also assign a user any number of **supplemental groups** —
+extra GIDs added to the container's process (pod `securityContext`
+`supplementalGroups`, `PUT /api/users/{id}/supplemental-groups`), on top of
+the single primary GID above. This is the POSIX/NFS pattern of belonging to
+several groups at once, each granting access to a different share, rather
+than everything hinging on one primary GID.
+
+It also matters for a reason specific to this codebase: `fsGroup` above
+only gets a volume's *files* to come out group-owned as that GID on volume
+types that support it — `hostPath` volumes (used by home directories in
+`hostPath` mode, see `charts/helve/README.md`) explicitly do **not** get
+that chown-on-mount treatment
+([kubernetes/kubernetes#138411](https://github.com/kubernetes/kubernetes/issues/138411)).
+Supplemental groups have no such carve-out — they're a property of the
+*process*, not something Kubernetes has to apply to a volume, so they work
+identically no matter what's mounted. If a shared filesystem already grants
+write access to files owned by some GID (an NFS export configured that
+way, say), adding that GID as a supplemental group is what actually lets a
+`hostPath`-mode home directory be writable — `fsGroup` alone can't do it
+there.
+
 ## Admin API tokens
 
 Everything in this API otherwise requires a session cookie — fine for the
@@ -1036,8 +1057,9 @@ IP directly over plain TCP like any other in-cluster client would.
   explicitly does not apply to `hostPath` volumes — file ownership and
   permissions there are entirely the shared filesystem's own concern (its
   export config, UID mapping, etc.); Helve does not `chown` anything
-  itself. See `charts/helve/README.md`'s "Home directories" section before
-  enabling `homeDrives.mode=hostPath`.
+  itself. Supplemental groups (also Users tab) are the actual fix here,
+  not `fsGroup` — see "Per-user UID/GID" above and `charts/helve/README.md`'s
+  "Home directories" section before enabling `homeDrives.mode=hostPath`.
 - Templates (Ollama/vLLM/SGLang/JupyterLab/RStudio) are unauthenticated *at
   the app they launch* by default, unrelated to logging into Helve itself.
   Ollama and SGLang have no auto-generated credential (see "Ownership, auto-generated

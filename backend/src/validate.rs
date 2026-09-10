@@ -266,6 +266,20 @@ pub fn uid_gid(field: &str, value: i32) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// A user's supplemental GID list (pod securityContext `supplementalGroups`).
+/// Same per-value rule as `uid_gid` — 0 is root, so it's almost certainly a
+/// mistake here too — plus a count cap; Kubernetes itself caps this list at
+/// 4096 entries, but nobody legitimately needs more than a handful.
+pub fn supplemental_groups(values: &[i32]) -> Result<(), ApiError> {
+    if values.len() > 32 {
+        return Err(bad("supplemental_groups", "must be at most 32 groups"));
+    }
+    for &value in values {
+        uid_gid("supplemental_groups", value)?;
+    }
+    Ok(())
+}
+
 pub fn password(value: &str) -> Result<(), ApiError> {
     if value.len() < 8 {
         return Err(bad("password", "must be at least 8 characters"));
@@ -442,6 +456,15 @@ mod tests {
         assert!(is_ok(uid_gid("uid", 1)));
         assert!(!is_ok(uid_gid("uid", 0)));
         assert!(!is_ok(uid_gid("uid", -1)));
+    }
+
+    #[test]
+    fn supplemental_groups_rejects_root_negative_and_too_many() {
+        assert!(is_ok(supplemental_groups(&[])));
+        assert!(is_ok(supplemental_groups(&[1000, 2000])));
+        assert!(!is_ok(supplemental_groups(&[1000, 0])));
+        assert!(!is_ok(supplemental_groups(&[-1])));
+        assert!(!is_ok(supplemental_groups(&(1..=33).collect::<Vec<i32>>())));
     }
 
     #[test]

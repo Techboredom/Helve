@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     than a size cap per user.
   See `charts/helve/README.md`'s "Home directories" section.
 
+- **Per-user supplemental groups.** An admin can now assign a user any
+  number of extra GIDs (`PUT /api/users/{id}/supplemental-groups`), added
+  to the pod `securityContext`'s `supplementalGroups` on top of the
+  existing single UID/GID. Unlike `fsGroup`, supplemental groups are a
+  property of the process rather than something Kubernetes chowns onto a
+  volume, so they're the actual way to grant write access on a `hostPath`
+  home directory (see above) — `fsGroup` is explicitly skipped for
+  `hostPath` volumes.
+
 ## [0.4.1] - 2026-09-09
 
 ### Added

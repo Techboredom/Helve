@@ -455,6 +455,12 @@ pub struct UserInfo {
     /// image defaults to. `None` means the image's own default.
     pub uid: Option<i32>,
     pub gid: Option<i32>,
+    /// Admin-set extra GIDs, added to every Deployment this user launches
+    /// alongside `uid`/`gid` above (pod securityContext
+    /// `supplementalGroups`) — the POSIX-ACL/NFS pattern of belonging to
+    /// several groups, each granting access to a different share, rather
+    /// than just one primary GID. Empty means none set.
+    pub supplemental_groups: Vec<i32>,
 }
 
 /// Submitted by the Users admin tab to set or clear a user's node label.
@@ -471,6 +477,13 @@ pub struct SetNodeLabelRequest {
 pub struct SetUidGidRequest {
     pub uid: Option<i32>,
     pub gid: Option<i32>,
+}
+
+/// Submitted by the Users admin tab to set or clear a user's supplemental
+/// groups. An empty list clears it back to none.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetSupplementalGroupsRequest {
+    pub supplemental_groups: Vec<i32>,
 }
 
 /// Submitted by the API Tokens admin tab to mint a new token for the

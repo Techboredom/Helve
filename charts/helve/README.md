@@ -190,13 +190,23 @@ Users tab turns into `runAsUser`/`runAsGroup`/`fsGroup` on the pod) does
 **not** apply to `hostPath` volumes at all — a directory Kubernetes just
 created with `DirectoryOrCreate` is owned by whatever the kubelet itself
 runs as, and setting a UID/GID doesn't get that UID write access to it
-automatically. Either pre-create each user's directory on the shared
-filesystem with matching ownership, configure the filesystem's own export
-to map UIDs the way you need (e.g. NFS UID mapping), or leave `uid`/`gid`
-unset for users whose images already run fine as whatever user the
-filesystem already grants access to. `pvc` mode doesn't have this problem
-for any CSI driver that declares `fsGroupPolicy: File` — true of most
-modern ones (Ceph, NFS-CSI, ...) — since `fsGroup` there does apply.
+automatically. `pvc` mode doesn't have this problem for any CSI driver
+that declares `fsGroupPolicy: File` — true of most modern ones (Ceph,
+NFS-CSI, ...) — since `fsGroup` there does apply.
+
+For `hostPath` specifically, the Users tab's **supplemental groups**
+(pod `securityContext` `supplementalGroups`) are the actual fix, not a
+workaround: unlike `fsGroup`, they're a property of the *process* rather
+than something Kubernetes chowns onto the volume, so they apply
+identically no matter what's mounted
+([kubernetes/kubernetes#138411](https://github.com/kubernetes/kubernetes/issues/138411)
+confirms the same). Configure the shared filesystem's export so the
+directories it grants write access to are owned by some GID, then assign
+that GID as a supplemental group to whichever users need it — their
+containers can then write there regardless of their `runAsUser`. Failing
+that, pre-create each user's directory with matching ownership, or leave
+`uid`/`gid` unset for users whose images already run fine as whatever
+identity the filesystem already grants access to.
 
 ## Guards
 

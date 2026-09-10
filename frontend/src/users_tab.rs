@@ -1,4 +1,6 @@
-use common::{CreateUserRequest, ResetPasswordRequest, Role, SetNodeLabelRequest, SetUidGidRequest, UserInfo};
+use common::{
+    CreateUserRequest, ResetPasswordRequest, Role, SetNodeLabelRequest, SetSupplementalGroupsRequest, SetUidGidRequest, UserInfo,
+};
 use leptos::prelude::*;
 use leptos::tachys::dom::event_target_value;
 use leptos::task::spawn_local;
@@ -33,6 +35,11 @@ pub fn UsersTab() -> impl IntoView {
     let gid_value = RwSignal::new(String::new());
     let uidgid_saving = RwSignal::new(false);
     let uidgid_result: RwSignal<Option<Result<String, String>>> = RwSignal::new(None);
+
+    let groups_target: RwSignal<Option<(i32, String)>> = RwSignal::new(None);
+    let groups_value = RwSignal::new(String::new());
+    let groups_saving = RwSignal::new(false);
+    let groups_result: RwSignal<Option<Result<String, String>>> = RwSignal::new(None);
 
     let refresh = move || {
         spawn_local(async move {
@@ -102,6 +109,7 @@ pub fn UsersTab() -> impl IntoView {
                             <th>"Role"</th>
                             <th>"Node label"</th>
                             <th>"UID/GID"</th>
+                            <th>"Supplemental groups"</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -119,15 +127,23 @@ pub fn UsersTab() -> impl IntoView {
                                 let reset_username = u.username.clone();
                                 let label_username = u.username.clone();
                                 let uidgid_username = u.username.clone();
+                                let groups_username = u.username.clone();
                                 let current_node_label = u.node_label.clone().unwrap_or_default();
                                 let current_uid = u.uid.map(|v| v.to_string()).unwrap_or_default();
                                 let current_gid = u.gid.map(|v| v.to_string()).unwrap_or_default();
+                                let groups_display = if u.supplemental_groups.is_empty() {
+                                    "—".to_string()
+                                } else {
+                                    u.supplemental_groups.iter().map(|g| g.to_string()).collect::<Vec<_>>().join(", ")
+                                };
+                                let current_groups = u.supplemental_groups.iter().map(|g| g.to_string()).collect::<Vec<_>>().join(", ");
                                 view! {
                                     <tr>
                                         <td>{u.username.clone()}</td>
                                         <td>{role_label}</td>
                                         <td>{node_label_display}</td>
                                         <td>{uidgid_display}</td>
+                                        <td>{groups_display}</td>
                                         <td class="table-actions">
                                             <button
                                                 type="button"
@@ -162,6 +178,17 @@ pub fn UsersTab() -> impl IntoView {
                                                 }
                                             >
                                                 "UID/GID"
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="icon-button"
+                                                on:click=move |_| {
+                                                    groups_target.set(Some((id, groups_username.clone())));
+                                                    groups_value.set(current_groups.clone());
+                                                    groups_result.set(None);
+                                                }
+                                            >
+                                                "Groups"
                                             </button>
                                             <button type="button" class="icon-button" on:click=move |_| delete_user(id)>
                                                 "Delete"
@@ -349,6 +376,60 @@ pub fn UsersTab() -> impl IntoView {
             }}
             <ResultBanner result=uidgid_result />
 
+            {move || {
+                groups_target
+                    .get()
+                    .map(|(id, target_username)| {
+                        let on_groups_submit = move |ev: web_sys::SubmitEvent| {
+                            ev.prevent_default();
+                            if groups_saving.get() {
+                                return;
+                            }
+                            let groups = groups_value.get();
+                            groups_saving.set(true);
+                            groups_result.set(None);
+                            spawn_local(async move {
+                                let outcome = set_supplemental_groups(id, groups).await;
+                                groups_saving.set(false);
+                                match outcome {
+                                    Ok(msg) => {
+                                        groups_result.set(Some(Ok(msg)));
+                                        groups_target.set(None);
+                                        refresh();
+                                    }
+                                    Err(err) => groups_result.set(Some(Err(err))),
+                                }
+                            });
+                        };
+                        view! {
+                            <h3 class="section-heading">{format!("Supplemental groups for \"{target_username}\"")}</h3>
+                            <form class="deploy-form" on:submit=on_groups_submit>
+                                <label>
+                                    "Group IDs (comma-separated)"
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. 2000, 2001"
+                                        prop:value=move || groups_value.get()
+                                        on:input=move |ev| groups_value.set(event_target_value(&ev))
+                                    />
+                                </label>
+                                <p class="hint">
+                                    "Every future launch from this account adds these as extra GIDs (pod securityContext supplementalGroups) alongside GID above — the POSIX/NFS pattern of belonging to several groups, each granting access to a different share. Existing deployments aren't affected. Leave blank to clear."
+                                </p>
+                                <div class="form-actions">
+                                    <button type="submit" disabled=move || groups_saving.get()>
+                                        {move || if groups_saving.get() { "Saving…" } else { "Save" }}
+                                    </button>
+                                    <button type="button" class="secondary-button" on:click=move |_| groups_target.set(None)>
+                                        "Cancel"
+                                    </button>
+                                </div>
+                            </form>
+                        }
+                    })
+            }}
+            <ResultBanner result=groups_result />
+
             <h3 class="section-heading">"New user"</h3>
             <form class="deploy-form" on:submit=on_submit>
                 <label>
@@ -409,6 +490,23 @@ async fn set_uid_gid(id: i32, uid: String, gid: String) -> Result<String, String
         .await
         .map_err(|err| format!("Failed to save UID/GID: {err}"))?;
     Ok(if cleared { "UID/GID cleared.".to_string() } else { "UID/GID saved.".to_string() })
+}
+
+async fn set_supplemental_groups(id: i32, value: String) -> Result<String, String> {
+    let supplemental_groups = value
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse::<i32>().map_err(|_| format!("\"{s}\" isn't a whole number")))
+        .collect::<Result<Vec<i32>, String>>()?;
+    let cleared = supplemental_groups.is_empty();
+    let _: UserInfo = api::put_json(
+        &format!("/api/users/{id}/supplemental-groups"),
+        &SetSupplementalGroupsRequest { supplemental_groups },
+    )
+    .await
+    .map_err(|err| format!("Failed to save supplemental groups: {err}"))?;
+    Ok(if cleared { "Supplemental groups cleared.".to_string() } else { "Supplemental groups saved.".to_string() })
 }
 
 async fn reset_password(id: i32, password: String) -> Result<String, String> {
