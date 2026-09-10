@@ -64,6 +64,36 @@ impl ProxyOrigin {
     }
 }
 
+/// How a per-user home directory gets provided to launched environments,
+/// mounted at whatever mount path a template's `home_mount_path` names.
+/// `None` (neither backend flag set) disables the feature entirely — no
+/// home volume is ever added, and a template/launch setting
+/// `home_mount_path` is rejected with 400 rather than silently ignored.
+///
+/// Both variants sidestep needing ReadWriteMany storage, for the same
+/// underlying reason `HostPath` states explicitly: the only StorageClasses
+/// this project has ever run against are Ceph RBD, which is
+/// ReadWriteOnce-only for a `Filesystem`-mode PVC — two of one user's
+/// environments landing on different nodes would leave the second stuck
+/// `Pending`. `Pvc` mode requires the operator to actually point
+/// `storage_class` at something ReadWriteMany-capable (CephFS, NFS-CSI,
+/// etc.); Helve has no way to check that itself before creating the claim.
+#[derive(Clone, Debug)]
+pub enum HomeDrives {
+    /// `<base_path>/<username>` as a `hostPath` volume (`DirectoryOrCreate`).
+    /// Requires every node to already have the same shared filesystem
+    /// (NFS, CephFS, a parallel filesystem, ...) mounted at `base_path` at
+    /// the OS level — from Kubernetes' point of view this looks identical
+    /// on any node, so there's no CSI/RWX machinery involved at all.
+    HostPath { base_path: String },
+    /// One PersistentVolumeClaim per user (`home-<username>`), created on
+    /// first use from a ReadWriteMany-capable StorageClass. Never deleted
+    /// by Helve, on user deletion or otherwise — same caution as every
+    /// other "Helve never deletes X" rule in this codebase, so a mistake
+    /// here can't be a data-loss bug.
+    Pvc { storage_class: String, size: String },
+}
+
 /// How many failed logins from one address, within [`LOGIN_FAILURE_WINDOW`],
 /// before further attempts are refused outright.
 const MAX_LOGIN_FAILURES: usize = 10;
@@ -134,6 +164,8 @@ pub struct AppState {
     pub app_origin: Option<String>,
     /// `None` = legacy same-origin `/proxy/<name>/` mode; see [`ProxyOrigin`].
     pub proxy_origin: Option<ProxyOrigin>,
+    /// `None` = the home-directory feature is off entirely; see [`HomeDrives`].
+    pub home_drives: Option<HomeDrives>,
     login_throttle: LoginThrottle,
     pods: Arc<RwLock<HashMap<String, PodInfo>>>,
     events: broadcast::Sender<PodEvent>,
@@ -146,6 +178,7 @@ impl AppState {
         pg: PgPool,
         app_origin: Option<String>,
         proxy_origin: Option<ProxyOrigin>,
+        home_drives: Option<HomeDrives>,
     ) -> Self {
         let (events, _) = broadcast::channel(256);
         Self {
@@ -154,6 +187,7 @@ impl AppState {
             pg,
             app_origin,
             proxy_origin,
+            home_drives,
             login_throttle: LoginThrottle::default(),
             pods: Arc::new(RwLock::new(HashMap::new())),
             events,

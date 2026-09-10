@@ -199,6 +199,14 @@ pub struct CreateDeploymentRequest {
     /// Optional even when `volume_claim_name`/`volume_mount_path` are set.
     #[serde(default)]
     pub volume_sub_path: Option<String>,
+    /// Where to mount this user's home directory inside the container, e.g.
+    /// "/home/jovyan" — independent of `volume_claim_name` above, so both
+    /// can be mounted together (a home directory plus a shared model
+    /// cache). Rejected with 400 if set but the backend has no home-drive
+    /// mode configured (`HOME_DRIVES_HOST_BASE_PATH` or
+    /// `HOME_DRIVES_STORAGE_CLASS`) — see backend/src/state.rs::HomeDrives.
+    #[serde(default)]
+    pub home_mount_path: Option<String>,
     /// If set, the backend generates a random value and sets it as this env
     /// var (overriding any same-keyed entry in `env`), instead of the user
     /// typing one in — e.g. `"JUPYTER_TOKEN"`. Comes from the selected
@@ -354,6 +362,9 @@ pub struct TemplateEntry {
     pub volume_mount_path: String,
     /// Optional even when the two above are set.
     pub volume_sub_path: String,
+    /// See `CreateDeploymentRequest::home_mount_path`. Empty means this
+    /// template doesn't use one.
+    pub home_mount_path: String,
     pub notes: String,
     /// If set, launching this template generates a random value for this env
     /// var automatically instead of showing it as an editable field — e.g.
@@ -399,6 +410,7 @@ pub struct SaveTemplateRequest {
     pub volume_claim_name: String,
     pub volume_mount_path: String,
     pub volume_sub_path: String,
+    pub home_mount_path: String,
     pub notes: String,
     pub secret_env_key: Option<String>,
     pub proxy_enabled: bool,

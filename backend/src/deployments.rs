@@ -8,8 +8,9 @@ use common::{
 };
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec, ReplicaSet};
 use k8s_openapi::api::core::v1::{
-    Container, EnvVar, HTTPGetAction, PersistentVolumeClaim, PersistentVolumeClaimVolumeSource, PodSecurityContext,
-    PodSpec, PodTemplateSpec, Probe, ResourceRequirements, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
+    Container, EnvVar, HTTPGetAction, HostPathVolumeSource, PersistentVolumeClaim, PersistentVolumeClaimSpec,
+    PersistentVolumeClaimVolumeSource, PodSecurityContext, PodSpec, PodTemplateSpec, Probe, ResourceRequirements,
+    Service, ServicePort, ServiceSpec, Volume, VolumeMount, VolumeResourceRequirements,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
@@ -24,7 +25,7 @@ use crate::auth::{generate_name_suffix, generate_token, CurrentUser};
 use crate::error::ApiError;
 use crate::quota;
 use crate::resources::{parse_count, parse_cpu_millicores, parse_memory_bytes, OWNER_LABEL};
-use crate::state::AppState;
+use crate::state::{AppState, HomeDrives};
 use crate::validate;
 
 /// Trims a client-supplied quantity and treats blank as absent.
@@ -189,6 +190,46 @@ fn security_context_for(user: &CurrentUser) -> Option<PodSecurityContext> {
     })
 }
 
+/// Ensures a user's home-directory PVC exists (`HomeDrives::Pvc` mode
+/// only), creating it from `storage_class`/`size` on first use.
+/// Deterministically named (`home-<username>`) so a relaunch — or a second
+/// environment launched later — finds the same claim already there rather
+/// than creating a new one each time.
+async fn ensure_home_pvc(state: &AppState, user: &CurrentUser, storage_class: &str, size: &str) -> Result<String, ApiError> {
+    let name = format!("home-{}", user.username);
+    let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(state.client.clone(), &state.namespace);
+    if pvcs.get(&name).await.is_ok() {
+        return Ok(name);
+    }
+    let mut labels = BTreeMap::new();
+    labels.insert(OWNER_LABEL.to_string(), user.username.clone());
+    let mut requests = BTreeMap::new();
+    requests.insert("storage".to_string(), Quantity(size.to_string()));
+    let pvc = PersistentVolumeClaim {
+        metadata: ObjectMeta {
+            name: Some(name.clone()),
+            namespace: Some(state.namespace.clone()),
+            labels: Some(labels),
+            ..Default::default()
+        },
+        spec: Some(PersistentVolumeClaimSpec {
+            access_modes: Some(vec!["ReadWriteMany".to_string()]),
+            storage_class_name: Some(storage_class.to_string()),
+            resources: Some(VolumeResourceRequirements { requests: Some(requests), ..Default::default() }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    match pvcs.create(&PostParams::default(), &pvc).await {
+        Ok(_) => Ok(name),
+        // A second concurrent first-launch for the same never-before-seen
+        // user can lose the get-then-create race just above; treat
+        // "already exists" the same as having found it there.
+        Err(kube::Error::Api(status)) if status.code == 409 => Ok(name),
+        Err(err) => Err(err.into()),
+    }
+}
+
 /// Errors if `user` isn't allowed to manage `deployment` — an admin always
 /// is; anyone else only for a deployment carrying their own `OWNER_LABEL`.
 /// A deployment with no owner label at all (predates Helve, or wasn't
@@ -277,6 +318,12 @@ pub async fn create_deployment(
             }
             _ => ApiError::from(err),
         })?;
+    }
+    validate::home_mount_path(req.home_mount_path.as_deref().unwrap_or(""))?;
+    if req.home_mount_path.as_deref().is_some_and(|p| !p.is_empty()) && state.home_drives.is_none() {
+        return Err(ApiError::BadRequest(
+            "home_mount_path is set, but this deployment of Helve has no home-drive mode configured".to_string(),
+        ));
     }
 
     let global_settings = quota::load_global_settings(&state.pg).await?;
@@ -383,25 +430,52 @@ pub async fn create_deployment(
     // set at all, not empty Vecs, since an empty `volumes: []` vs. an
     // absent field can render differently depending on the API server
     // version and this is simpler to reason about either way.
-    let (volumes, volume_mounts) = match &req.volume_claim_name {
-        Some(claim_name) => (
-            Some(vec![Volume {
-                name: "data".to_string(),
-                persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
-                    claim_name: claim_name.clone(),
-                    read_only: Some(false),
+    let mut pod_volumes = Vec::new();
+    let mut pod_volume_mounts = Vec::new();
+    if let Some(claim_name) = &req.volume_claim_name {
+        pod_volumes.push(Volume {
+            name: "data".to_string(),
+            persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                claim_name: claim_name.clone(),
+                read_only: Some(false),
+            }),
+            ..Default::default()
+        });
+        pod_volume_mounts.push(VolumeMount {
+            name: "data".to_string(),
+            mount_path: req.volume_mount_path.clone().unwrap_or_default(),
+            sub_path: req.volume_sub_path.clone().filter(|s| !s.is_empty()),
+            ..Default::default()
+        });
+    }
+    // Independent of the "data" volume above, so a launch can mount both at
+    // once (a home directory plus a shared model cache). Validated earlier
+    // that `state.home_drives` is set whenever this is, so the `expect`
+    // below can't actually fire.
+    if let Some(home_mount_path) = req.home_mount_path.as_deref().filter(|p| !p.is_empty()) {
+        let home_volume = match state.home_drives.as_ref().expect("checked above") {
+            HomeDrives::HostPath { base_path } => Volume {
+                name: "home".to_string(),
+                host_path: Some(HostPathVolumeSource {
+                    path: format!("{base_path}/{}", user.username),
+                    type_: Some("DirectoryOrCreate".to_string()),
                 }),
                 ..Default::default()
-            }]),
-            Some(vec![VolumeMount {
-                name: "data".to_string(),
-                mount_path: req.volume_mount_path.clone().unwrap_or_default(),
-                sub_path: req.volume_sub_path.clone().filter(|s| !s.is_empty()),
-                ..Default::default()
-            }]),
-        ),
-        None => (None, None),
-    };
+            },
+            HomeDrives::Pvc { storage_class, size } => {
+                let claim_name = ensure_home_pvc(&state, &user, storage_class, size).await?;
+                Volume {
+                    name: "home".to_string(),
+                    persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource { claim_name, read_only: Some(false) }),
+                    ..Default::default()
+                }
+            }
+        };
+        pod_volumes.push(home_volume);
+        pod_volume_mounts.push(VolumeMount { name: "home".to_string(), mount_path: home_mount_path.to_string(), ..Default::default() });
+    }
+    let volumes = (!pod_volumes.is_empty()).then_some(pod_volumes);
+    let volume_mounts = (!pod_volume_mounts.is_empty()).then_some(pod_volume_mounts);
 
     // Generous timing: an LLM server can take minutes to load a model into
     // GPU memory before it can answer `readiness_path` at all, and a probe

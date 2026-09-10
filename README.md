@@ -414,6 +414,17 @@ can use:
   `Pending` with an opaque mount-failure event), plus an optional
   `volume_sub_path` to scope the mount to one subdirectory of the claim
   rather than its root.
+- **Home directory mount** — `home_mount_path`, e.g. `/home/jovyan`,
+  mounts a per-user home directory into the container, independent of
+  (and mountable alongside) the storage mount above. Only takes effect if
+  the backend was started with a home-drive mode configured
+  (`HOME_DRIVES_HOST_BASE_PATH` or `HOME_DRIVES_STORAGE_CLASS` +
+  `HOME_DRIVES_STORAGE_SIZE`; 400 if set without either) — see
+  `charts/helve/README.md`'s "Home directories" section for the two modes
+  and their tradeoffs (`hostPath` needs no `ReadWriteMany` storage at all,
+  at the cost of every node needing the same shared filesystem already
+  mounted at the OS level; `pvc` needs a real `ReadWriteMany`-capable
+  StorageClass but provisions per-user claims Helve manages itself).
 - **Readiness probe path** — `readiness_path`, e.g. `/health`, attaches an
   HTTP `readinessProbe` to the container against `container_port` (400 if
   `container_port` isn't also set), with generous timing
@@ -426,12 +437,15 @@ can use:
   templates default to `/health` (both engines expose it); Ollama's to
   `/` (any 200 response counts).
 
-None of this requires a StorageClass or dynamic provisioning — a
-statically-bound `PersistentVolume`/`PersistentVolumeClaim` pair (NFS-
-backed, or whatever your cluster already has) works the same as a
+None of the storage mount above requires a StorageClass or dynamic
+provisioning — a statically-bound `PersistentVolume`/`PersistentVolumeClaim`
+pair (NFS-backed, or whatever your cluster already has) works the same as a
 dynamically-provisioned one from Helve's perspective, since it only ever
 references an existing claim by name. Provision the PVC once, by hand,
-then point any number of launches at it.
+then point any number of launches at it. (The home directory mount above is
+different: in `pvc` mode specifically, Helve *does* create a
+PersistentVolumeClaim itself, dynamically, from whatever StorageClass the
+backend was configured with — see `charts/helve/README.md`.)
 
 ## Ownership, auto-generated credentials, and the reverse proxy
 
@@ -1007,6 +1021,15 @@ IP directly over plain TCP like any other in-cluster client would.
   (either role) can read the logs of anything running in the watched
   namespace, and (via Launch) can create a Service with a public-facing
   LoadBalancer IP — there's no admission control over what gets exposed.
+- **Home directories in `hostPath` mode grant a launched pod access to that
+  path on whichever node it lands on**, not just the one subdirectory
+  Kubernetes' own volume isolation implies — a `hostPath` volume is a real
+  node-filesystem access grant, scoped by convention (the path Helve
+  constructs) rather than by anything Kubernetes enforces. File ownership
+  and permissions under that path are the shared filesystem's own concern
+  (its export config, UID mapping, etc.); Helve does not `chown` anything
+  itself. See `charts/helve/README.md`'s "Home directories" section before
+  enabling `homeDrives.mode=hostPath`.
 - Templates (Ollama/vLLM/SGLang/JupyterLab/RStudio) are unauthenticated *at
   the app they launch* by default, unrelated to logging into Helve itself.
   Ollama and SGLang have no auto-generated credential (see "Ownership, auto-generated

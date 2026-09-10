@@ -85,6 +85,22 @@ pub fn volume_mount(claim_name: &str, mount_path: &str) -> Result<(), ApiError> 
     Ok(())
 }
 
+/// Where a home directory mounts inside the container — unlike
+/// `volume_mount`, there's no paired claim name to validate alongside it.
+/// Empty is always fine (this template doesn't use one); the backend
+/// separately rejects a non-empty value if no home-drive mode is
+/// configured at all (see `deployments::create_deployment`).
+pub fn home_mount_path(value: &str) -> Result<(), ApiError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(());
+    }
+    if !value.starts_with('/') {
+        return Err(bad("home_mount_path", "must be an absolute path"));
+    }
+    Ok(())
+}
+
 /// A display label (template name, username): just guards against empty/huge/
 /// control-character input, not a strict k8s naming scheme.
 pub fn label(field: &str, value: &str, max_len: usize) -> Result<(), ApiError> {
@@ -391,6 +407,13 @@ mod tests {
         assert!(!is_ok(volume_mount("", "/mnt/models")));
         assert!(!is_ok(volume_mount("Bad_Name", "/mnt/models")), "claim name must be a valid k8s name");
         assert!(!is_ok(volume_mount("models", "relative/path")), "mount path must be absolute");
+    }
+
+    #[test]
+    fn home_mount_path_allows_empty_and_requires_absolute() {
+        assert!(is_ok(home_mount_path("")));
+        assert!(is_ok(home_mount_path("/home/jovyan")));
+        assert!(!is_ok(home_mount_path("relative/path")));
     }
 
     #[test]

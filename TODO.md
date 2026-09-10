@@ -1,4 +1,4 @@
 ** SSO/LDAP **
 ** Remove uneeded info from pods page and the launch tab **
 ** Help text for launch fields **
-** Home Drives **
+** Batch job support (Kueue?) **

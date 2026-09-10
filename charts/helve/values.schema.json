@@ -96,6 +96,35 @@
         }
       }
     },
+    "homeDrives": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["off", "hostPath", "pvc"],
+          "description": "off (default): no home-directory feature. hostPath: mount <hostPath.basePath>/<username> from every node's own filesystem. pvc: one PersistentVolumeClaim per user from pvc.storageClassName."
+        },
+        "hostPath": {
+          "type": "object",
+          "properties": {
+            "basePath": {
+              "type": "string",
+              "description": "Required when mode=hostPath. Every node must already have the same shared filesystem mounted at this path at the OS level."
+            }
+          }
+        },
+        "pvc": {
+          "type": "object",
+          "properties": {
+            "storageClassName": {
+              "type": "string",
+              "description": "Required when mode=pvc. Must support ReadWriteMany if a user can run more than one home-drive environment at once."
+            },
+            "size": { "type": "string", "description": "Size of each per-user home PVC." }
+          }
+        }
+      }
+    },
     "adminBootstrap": {
       "type": "object",
       "properties": {

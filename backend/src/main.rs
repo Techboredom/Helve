@@ -74,6 +74,30 @@ struct Args {
     /// not for a shared deployment.
     #[arg(long, env = "PROXY_BASE_DOMAIN", requires = "app_origin")]
     proxy_base_domain: Option<String>,
+
+    /// Mounts "<this>/<username>" (hostPath, DirectoryOrCreate) into any
+    /// template with a `home_mount_path` set, giving each user a home
+    /// directory. Requires every node to already have the same shared
+    /// filesystem (NFS, CephFS, a parallel filesystem, ...) mounted at this
+    /// path at the OS level — Kubernetes sees an identical path on any
+    /// node, so no StorageClass or CSI driver is involved at all. Mutually
+    /// exclusive with `--home-drives-storage-class`.
+    #[arg(long, env = "HOME_DRIVES_HOST_BASE_PATH", conflicts_with = "home_drives_storage_class")]
+    home_drives_host_base_path: Option<String>,
+
+    /// Provisions one PersistentVolumeClaim per user ("home-<username>")
+    /// from this StorageClass instead of a host path. Must support
+    /// ReadWriteMany if a user can ever run more than one environment at
+    /// once — a ReadWriteOnce claim can only ever be attached to one node
+    /// at a time, and Helve doesn't check which kind this is before
+    /// creating the claim. Requires `--home-drives-storage-size`.
+    #[arg(long, env = "HOME_DRIVES_STORAGE_CLASS", requires = "home_drives_storage_size")]
+    home_drives_storage_class: Option<String>,
+
+    /// Size of each per-user home PVC, e.g. "20Gi". Only meaningful with
+    /// `--home-drives-storage-class`.
+    #[arg(long, env = "HOME_DRIVES_STORAGE_SIZE")]
+    home_drives_storage_size: Option<String>,
 }
 
 #[tokio::main]
@@ -130,6 +154,30 @@ async fn main() -> anyhow::Result<()> {
         ),
     }
 
+    // `conflicts_with`/`requires` on these flags means clap already rules out
+    // both being set, or a storage class with no size — this only has to
+    // handle the three shapes clap actually lets through.
+    let home_drives = match (&args.home_drives_host_base_path, &args.home_drives_storage_class) {
+        (Some(base_path), None) => {
+            Some(state::HomeDrives::HostPath { base_path: base_path.trim_end_matches('/').to_string() })
+        }
+        (None, Some(storage_class)) => Some(state::HomeDrives::Pvc {
+            storage_class: storage_class.clone(),
+            size: args.home_drives_storage_size.clone().expect("clap requires HOME_DRIVES_STORAGE_SIZE alongside HOME_DRIVES_STORAGE_CLASS"),
+        }),
+        (None, None) => None,
+        (Some(_), Some(_)) => unreachable!("clap's conflicts_with rules this out"),
+    };
+    match &home_drives {
+        Some(state::HomeDrives::HostPath { base_path }) => {
+            tracing::info!(base_path, "home directories: hostPath mode")
+        }
+        Some(state::HomeDrives::Pvc { storage_class, size }) => {
+            tracing::info!(storage_class, size, "home directories: PVC mode")
+        }
+        None => {}
+    }
+
     let app_origin = args.app_origin.as_ref().map(|origin| origin.trim_end_matches('/').to_string());
     if app_origin.as_deref().map(|o| o.starts_with("http://")).unwrap_or(true) {
         tracing::warn!(
@@ -138,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let state = AppState::new(args.namespace.clone(), client.clone(), pg, app_origin, proxy_origin);
+    let state = AppState::new(args.namespace.clone(), client.clone(), pg, app_origin, proxy_origin, home_drives);
     tokio::spawn(watch::run(state.clone(), client));
     tokio::spawn(prune_expired_credentials(state.clone()));
 

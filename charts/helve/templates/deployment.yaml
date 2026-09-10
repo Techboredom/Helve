@@ -85,6 +85,15 @@ spec:
             # what users actually type — including https.
             - name: APP_ORIGIN
               value: {{ include "helve.appOrigin" . | quote }}
+            {{- if eq .Values.homeDrives.mode "hostPath" }}
+            - name: HOME_DRIVES_HOST_BASE_PATH
+              value: {{ .Values.homeDrives.hostPath.basePath | quote }}
+            {{- else if eq .Values.homeDrives.mode "pvc" }}
+            - name: HOME_DRIVES_STORAGE_CLASS
+              value: {{ .Values.homeDrives.pvc.storageClassName | quote }}
+            - name: HOME_DRIVES_STORAGE_SIZE
+              value: {{ .Values.homeDrives.pvc.size | quote }}
+            {{- end }}
             {{- if .Values.proxy.separateOrigins }}
             # Serves each proxied deployment from its own origin,
             # <name>.<baseDomain>, instead of from a path on this app's

@@ -74,6 +74,29 @@ database:
       size: 5Gi
       className: ""
 
+homeDrives:
+  # "off" (default), "hostPath", or "pvc". Templates opt in individually
+  # via their own home_mount_path field (Templates admin tab) — this only
+  # controls where the volume actually comes from.
+  mode: "off"
+  hostPath:
+    # Same path on every node, already holding a shared filesystem (NFS,
+    # CephFS, a parallel filesystem, ...) mounted at the OS level — Helve
+    # mounts "<this>/<username>" into the container (DirectoryOrCreate),
+    # which looks identical from any node without needing a StorageClass
+    # or CSI driver at all. Required if mode=hostPath.
+    basePath: ""
+  pvc:
+    # Must support ReadWriteMany if a user can ever run more than one
+    # home-drive environment at once - a ReadWriteOnce claim only ever
+    # attaches to one node at a time, and Helve doesn't check which kind
+    # this is before creating the claim. Required if mode=pvc.
+    storageClassName: ""
+    # Size of each per-user home PVC ("home-<username>"), created on that
+    # user's first home-drive launch and never deleted by Helve — not on
+    # relaunch, not on user deletion. Required if mode=pvc.
+    size: "10Gi"
+
 adminBootstrap:
   # A Secret (key "password") to use instead of adminBootstrap.password.
   existingSecret: ""

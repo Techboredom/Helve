@@ -43,6 +43,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
     let volume_claim_name = RwSignal::new(String::new());
     let volume_mount_path = RwSignal::new(String::new());
     let volume_sub_path = RwSignal::new(String::new());
+    let home_mount_path = RwSignal::new(String::new());
     let pvcs: RwSignal<Vec<PvcEntry>> = RwSignal::new(Vec::new());
     let notes = RwSignal::new(None::<String>);
     let secret_env_key = RwSignal::new(None::<String>);
@@ -132,6 +133,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
         volume_claim_name.set(t.volume_claim_name.clone());
         volume_mount_path.set(t.volume_mount_path.clone());
         volume_sub_path.set(t.volume_sub_path.clone());
+        home_mount_path.set(t.home_mount_path.clone());
         secret_env_key.set(t.secret_env_key.clone());
         proxy_enabled.set(t.proxy_enabled);
         strip_prefix.set(t.strip_prefix);
@@ -161,6 +163,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
         volume_claim_name.set(String::new());
         volume_mount_path.set(String::new());
         volume_sub_path.set(String::new());
+        home_mount_path.set(String::new());
         secret_env_key.set(None);
         proxy_enabled.set(false);
         strip_prefix.set(false);
@@ -217,6 +220,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
             volume_claim_name: non_empty(volume_claim_name.get()),
             volume_mount_path: non_empty(volume_mount_path.get()),
             volume_sub_path: non_empty(volume_sub_path.get()),
+            home_mount_path: non_empty(home_mount_path.get()),
             generate_secret_for: secret_env_key.get(),
             enable_proxy: proxy_enabled.get(),
             strip_prefix: strip_prefix.get(),
@@ -548,6 +552,20 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
                         />
                     </label>
                 </fieldset>
+
+                <label>
+                    "Home directory mount path (optional)"
+                    <input
+                        type="text"
+                        maxlength="512"
+                        placeholder="e.g. /home/jovyan"
+                        prop:value=move || home_mount_path.get()
+                        on:input=move |ev| home_mount_path.set(event_target_value(&ev))
+                    />
+                    <div class="hint">
+                        "Only takes effect if this deployment of Helve has a home-drive mode configured."
+                    </div>
+                </label>
 
                 <label>
                     "Command arguments (optional, one per line)"

@@ -114,6 +114,19 @@ release rather than being dead code sitting in an unused named template.
 {{ fail "no database configured — either set database.existingSecret to a Secret holding a Postgres connection string (key: database.existingSecretKey, default \"uri\"), or set database.deploy.enabled=true to deploy a single-replica evaluation Postgres (requires the CloudNativePG operator; not for anything you'd be upset to lose)." }}
 {{- end -}}
 
+{{- if and (eq .Values.homeDrives.mode "hostPath") (not .Values.homeDrives.hostPath.basePath) -}}
+{{ fail "homeDrives.mode=hostPath requires homeDrives.hostPath.basePath — the path every node already has the same shared filesystem mounted at." }}
+{{- end -}}
+
+{{- if eq .Values.homeDrives.mode "pvc" -}}
+{{- if not .Values.homeDrives.pvc.storageClassName -}}
+{{ fail "homeDrives.mode=pvc requires homeDrives.pvc.storageClassName (a ReadWriteMany-capable StorageClass)." }}
+{{- end -}}
+{{- if not .Values.homeDrives.pvc.size -}}
+{{ fail "homeDrives.mode=pvc requires homeDrives.pvc.size, e.g. \"10Gi\"." }}
+{{- end -}}
+{{- end -}}
+
 {{- if and .Values.ingress.enabled .Values.ingress.tls.enabled (eq .Values.ingress.tls.mode "certManager") (not .Values.ingress.tls.issuerRef.name) -}}
 {{ fail "ingress.tls.mode=certManager requires ingress.tls.issuerRef.name (the cert-manager Issuer/ClusterIssuer to request the certificate from)." }}
 {{- end -}}
