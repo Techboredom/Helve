@@ -2,6 +2,7 @@ mod auth;
 mod deployments;
 mod error;
 mod events;
+mod groups;
 mod images;
 mod logs;
 mod proxy;
@@ -246,6 +247,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/users/{id}/node-label", put(users::set_node_label))
         .route("/api/users/{id}/uid-gid", put(users::set_uid_gid))
         .route("/api/users/{id}/supplemental-groups", put(users::set_supplemental_groups))
+        .route("/api/groups", get(groups::list_groups).post(groups::create_group))
+        .route("/api/groups/{id}", put(groups::update_group).delete(groups::delete_group))
         .route("/api/tokens", get(tokens::list_tokens).post(tokens::create_token))
         .route("/api/tokens/{id}", axum::routing::delete(tokens::delete_token))
         .route("/api/pods", get(ws::list_pods))

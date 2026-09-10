@@ -207,6 +207,17 @@ pub struct CreateDeploymentRequest {
     /// `HOME_DRIVES_STORAGE_CLASS`) — see backend/src/state.rs::HomeDrives.
     #[serde(default)]
     pub home_mount_path: Option<String>,
+    /// Replaces `/etc/passwd`/`/etc/group` in the container with copies of
+    /// the image's own, plus an appended entry naming whatever UID/GID/
+    /// supplemental groups the launching user was assigned — so `id`,
+    /// `ls -l`, a shell prompt, etc. show real names instead of bare
+    /// numbers. Requires the image to have a POSIX shell (an init
+    /// container, running that same image, does the copying); a no-op if
+    /// the user has no uid/gid/supplemental_groups set at all, since
+    /// there's then nothing to name that the image's own files don't
+    /// already cover.
+    #[serde(default)]
+    pub inject_identity_files: bool,
     /// If set, the backend generates a random value and sets it as this env
     /// var (overriding any same-keyed entry in `env`), instead of the user
     /// typing one in — e.g. `"JUPYTER_TOKEN"`. Comes from the selected
@@ -365,6 +376,8 @@ pub struct TemplateEntry {
     /// See `CreateDeploymentRequest::home_mount_path`. Empty means this
     /// template doesn't use one.
     pub home_mount_path: String,
+    /// See `CreateDeploymentRequest::inject_identity_files`.
+    pub inject_identity_files: bool,
     pub notes: String,
     /// If set, launching this template generates a random value for this env
     /// var automatically instead of showing it as an editable field — e.g.
@@ -411,6 +424,7 @@ pub struct SaveTemplateRequest {
     pub volume_mount_path: String,
     pub volume_sub_path: String,
     pub home_mount_path: String,
+    pub inject_identity_files: bool,
     pub notes: String,
     pub secret_env_key: Option<String>,
     pub proxy_enabled: bool,
@@ -455,12 +469,32 @@ pub struct UserInfo {
     /// image defaults to. `None` means the image's own default.
     pub uid: Option<i32>,
     pub gid: Option<i32>,
-    /// Admin-set extra GIDs, added to every Deployment this user launches
+    /// Admin-set membership in the named-groups registry (see
+    /// [`GroupInfo`]), added to every Deployment this user launches
     /// alongside `uid`/`gid` above (pod securityContext
     /// `supplementalGroups`) — the POSIX-ACL/NFS pattern of belonging to
     /// several groups, each granting access to a different share, rather
     /// than just one primary GID. Empty means none set.
-    pub supplemental_groups: Vec<i32>,
+    pub supplemental_groups: Vec<GroupInfo>,
+}
+
+/// An admin-managed named group: a display name plus the real GID it
+/// means. A GID is meant to be shared by every user who needs access to
+/// the same thing (an NFS share, say), so it's named once here rather than
+/// letting each user's assignment carry its own free-text label — that
+/// would let two users call the same GID two different things.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GroupInfo {
+    pub id: i32,
+    pub name: String,
+    pub gid: i32,
+}
+
+/// Submitted by the Groups admin tab to create or update a named group.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SaveGroupRequest {
+    pub name: String,
+    pub gid: i32,
 }
 
 /// Submitted by the Users admin tab to set or clear a user's node label.
@@ -480,10 +514,11 @@ pub struct SetUidGidRequest {
 }
 
 /// Submitted by the Users admin tab to set or clear a user's supplemental
-/// groups. An empty list clears it back to none.
+/// groups — `group_ids` names rows in the groups registry (`GroupInfo::id`),
+/// not raw GIDs. An empty list clears it back to none.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SetSupplementalGroupsRequest {
-    pub supplemental_groups: Vec<i32>,
+    pub group_ids: Vec<i32>,
 }
 
 /// Submitted by the API Tokens admin tab to mint a new token for the

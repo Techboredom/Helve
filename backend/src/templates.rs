@@ -33,6 +33,7 @@ struct TemplateRow {
     volume_mount_path: String,
     volume_sub_path: String,
     home_mount_path: String,
+    inject_identity_files: bool,
     notes: String,
     secret_env_key: Option<String>,
     proxy_enabled: bool,
@@ -66,6 +67,7 @@ impl From<TemplateRow> for TemplateEntry {
             volume_mount_path: row.volume_mount_path,
             volume_sub_path: row.volume_sub_path,
             home_mount_path: row.home_mount_path,
+            inject_identity_files: row.inject_identity_files,
             notes: row.notes,
             secret_env_key: row.secret_env_key,
             proxy_enabled: row.proxy_enabled,
@@ -81,8 +83,8 @@ impl From<TemplateRow> for TemplateEntry {
 const SELECT_COLUMNS: &str = "id, name, image, container_port, cpu_request, cpu_limit, memory_request, \
      memory_limit, accelerator_type, accelerator_count, env, args, model, context_length, quantization, \
      served_model_name, gpu_memory_utilization, dtype, volume_claim_name, volume_mount_path, \
-     volume_sub_path, home_mount_path, notes, secret_env_key, proxy_enabled, strip_prefix, public_service, \
-     readiness_path";
+     volume_sub_path, home_mount_path, inject_identity_files, notes, secret_env_key, proxy_enabled, \
+     strip_prefix, public_service, readiness_path";
 
 pub async fn list_templates(
     _user: CurrentUser,
@@ -103,10 +105,10 @@ pub async fn create_template(
         "INSERT INTO templates (name, image, container_port, cpu_request, cpu_limit, memory_request, \
          memory_limit, accelerator_type, accelerator_count, env, args, model, context_length, quantization, \
          served_model_name, gpu_memory_utilization, dtype, volume_claim_name, volume_mount_path, \
-         volume_sub_path, home_mount_path, notes, secret_env_key, proxy_enabled, strip_prefix, \
-         public_service, readiness_path) \
+         volume_sub_path, home_mount_path, inject_identity_files, notes, secret_env_key, proxy_enabled, \
+         strip_prefix, public_service, readiness_path) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, \
-                 $20, $21, $22, $23, $24, $25, $26, $27) \
+                 $20, $21, $22, $23, $24, $25, $26, $27, $28) \
          RETURNING {SELECT_COLUMNS}"
     );
     let row: TemplateRow = sqlx::query_as(AssertSqlSafe(sql))
@@ -131,6 +133,7 @@ pub async fn create_template(
         .bind(&req.volume_mount_path)
         .bind(&req.volume_sub_path)
         .bind(&req.home_mount_path)
+        .bind(req.inject_identity_files)
         .bind(&req.notes)
         .bind(&req.secret_env_key)
         .bind(req.proxy_enabled)
@@ -154,9 +157,10 @@ pub async fn update_template(
          memory_request = $6, memory_limit = $7, accelerator_type = $8, accelerator_count = $9, env = $10, \
          args = $11, model = $12, context_length = $13, quantization = $14, served_model_name = $15, \
          gpu_memory_utilization = $16, dtype = $17, volume_claim_name = $18, volume_mount_path = $19, \
-         volume_sub_path = $20, home_mount_path = $21, notes = $22, secret_env_key = $23, proxy_enabled = $24, \
-         strip_prefix = $25, public_service = $26, readiness_path = $27 \
-         WHERE id = $28 \
+         volume_sub_path = $20, home_mount_path = $21, inject_identity_files = $22, notes = $23, \
+         secret_env_key = $24, proxy_enabled = $25, strip_prefix = $26, public_service = $27, \
+         readiness_path = $28 \
+         WHERE id = $29 \
          RETURNING {SELECT_COLUMNS}"
     );
     let row: Option<TemplateRow> = sqlx::query_as(AssertSqlSafe(sql))
@@ -181,6 +185,7 @@ pub async fn update_template(
         .bind(&req.volume_mount_path)
         .bind(&req.volume_sub_path)
         .bind(&req.home_mount_path)
+        .bind(req.inject_identity_files)
         .bind(&req.notes)
         .bind(&req.secret_env_key)
         .bind(req.proxy_enabled)

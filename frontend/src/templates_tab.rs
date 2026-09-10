@@ -37,6 +37,7 @@ pub fn TemplatesTab() -> impl IntoView {
     let volume_mount_path = RwSignal::new(String::new());
     let volume_sub_path = RwSignal::new(String::new());
     let home_mount_path = RwSignal::new(String::new());
+    let inject_identity_files = RwSignal::new(false);
     let pvcs: RwSignal<Vec<PvcEntry>> = RwSignal::new(Vec::new());
     let notes_text = RwSignal::new(String::new());
     let secret_env_key = RwSignal::new(String::new());
@@ -97,6 +98,7 @@ pub fn TemplatesTab() -> impl IntoView {
         volume_mount_path.set(String::new());
         volume_sub_path.set(String::new());
         home_mount_path.set(String::new());
+        inject_identity_files.set(false);
         notes_text.set(String::new());
         secret_env_key.set(String::new());
         proxy_enabled.set(false);
@@ -128,6 +130,7 @@ pub fn TemplatesTab() -> impl IntoView {
         volume_mount_path.set(t.volume_mount_path.clone());
         volume_sub_path.set(t.volume_sub_path.clone());
         home_mount_path.set(t.home_mount_path.clone());
+        inject_identity_files.set(t.inject_identity_files);
         notes_text.set(t.notes.clone());
         secret_env_key.set(t.secret_env_key.clone().unwrap_or_default());
         proxy_enabled.set(t.proxy_enabled);
@@ -189,6 +192,7 @@ pub fn TemplatesTab() -> impl IntoView {
             volume_mount_path: volume_mount_path.get().trim().to_string(),
             volume_sub_path: volume_sub_path.get().trim().to_string(),
             home_mount_path: home_mount_path.get().trim().to_string(),
+            inject_identity_files: inject_identity_files.get(),
             notes: notes_text.get(),
             secret_env_key: {
                 let key = secret_env_key.get().trim().to_string();
@@ -531,6 +535,15 @@ pub fn TemplatesTab() -> impl IntoView {
                     <div class="hint">
                         "Only takes effect if this deployment of Helve has a home-drive mode configured; leave blank for templates (Ollama, vLLM, SGLang) that don't need one."
                     </div>
+                </label>
+
+                <label class="checkbox">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || inject_identity_files.get()
+                        on:change=move |ev| inject_identity_files.set(event_target_checked(&ev))
+                    />
+                    "Inject username/group names into /etc/passwd and /etc/group (so a shell or file listing shows names instead of bare UID/GID numbers) — requires the image to have a POSIX shell, and only takes effect for a launching user with a UID, GID, or supplemental group actually assigned"
                 </label>
 
                 <label>

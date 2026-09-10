@@ -8,15 +8,17 @@ use axum::http::request::Parts;
 use axum::http::HeaderMap;
 use axum::Json;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use common::{ChangePasswordRequest, LoginRequest, Role, SessionLogEntry, UserInfo};
+use common::{ChangePasswordRequest, GroupInfo, LoginRequest, Role, SessionLogEntry, UserInfo};
 use rand::distr::Alphanumeric;
 use rand::RngExt;
 use sha2::{Digest, Sha256};
-use sqlx::FromRow;
+use sqlx::types::Json as SqlxJson;
+use sqlx::{AssertSqlSafe, FromRow};
 use time::Duration;
 
 use crate::error::ApiError;
 use crate::state::AppState;
+use crate::users::GROUPS_JSON;
 use crate::validate;
 
 pub const SESSION_COOKIE: &str = "helve_session";
@@ -86,8 +88,8 @@ pub struct CurrentUser {
     /// Admin-set UID/GID, if any — see `common::UserInfo::uid`/`gid`.
     pub uid: Option<i32>,
     pub gid: Option<i32>,
-    /// Admin-set extra GIDs — see `common::UserInfo::supplemental_groups`.
-    pub supplemental_groups: Vec<i32>,
+    /// Admin-set named-group membership — see `common::UserInfo::supplemental_groups`.
+    pub supplemental_groups: Vec<GroupInfo>,
 }
 
 #[derive(FromRow)]
@@ -98,7 +100,7 @@ struct SessionUserRow {
     node_label: Option<String>,
     uid: Option<i32>,
     gid: Option<i32>,
-    supplemental_groups: Vec<i32>,
+    supplemental_groups: SqlxJson<Vec<GroupInfo>>,
 }
 
 impl FromRequestParts<AppState> for CurrentUser {
@@ -114,15 +116,13 @@ impl FromRequestParts<AppState> for CurrentUser {
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let jar = CookieJar::from_request_parts(parts, state).await.expect("infallible");
         if let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) {
-            let row: Option<SessionUserRow> = sqlx::query_as(
-                "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, u.supplemental_groups FROM sessions s \
-                 JOIN users u ON u.id = s.user_id \
-                 WHERE s.token = $1 AND s.expires_at > now()",
-            )
-            .bind(&token)
-            .fetch_optional(&state.pg)
-            .await
-            .map_err(ApiError::from)?;
+            let sql = format!(
+                "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
+                 FROM sessions s JOIN users u ON u.id = s.user_id \
+                 WHERE s.token = $1 AND s.expires_at > now()"
+            );
+            let row: Option<SessionUserRow> =
+                sqlx::query_as(AssertSqlSafe(sql)).bind(&token).fetch_optional(&state.pg).await.map_err(ApiError::from)?;
 
             let row = row.ok_or(ApiError::Unauthorized)?;
             let role = if row.role == "admin" { Role::Admin } else { Role::User };
@@ -133,7 +133,7 @@ impl FromRequestParts<AppState> for CurrentUser {
                 node_label: row.node_label,
                 uid: row.uid,
                 gid: row.gid,
-                supplemental_groups: row.supplemental_groups,
+                supplemental_groups: row.supplemental_groups.0,
             });
         }
 
@@ -157,7 +157,7 @@ struct ApiTokenUserRow {
     node_label: Option<String>,
     uid: Option<i32>,
     gid: Option<i32>,
-    supplemental_groups: Vec<i32>,
+    supplemental_groups: SqlxJson<Vec<GroupInfo>>,
 }
 
 /// Resolves an `Authorization: Bearer <token>` value to the account that
@@ -165,14 +165,12 @@ struct ApiTokenUserRow {
 /// tell a stale token from one still in active use before revoking it.
 async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<CurrentUser>, ApiError> {
     let hash = hash_token(token);
-    let row: Option<ApiTokenUserRow> = sqlx::query_as(
-        "SELECT t.id AS token_id, u.id, u.username, u.role, u.node_label, u.uid, u.gid, u.supplemental_groups \
+    let sql = format!(
+        "SELECT t.id AS token_id, u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
          FROM api_tokens t JOIN users u ON u.id = t.user_id \
-         WHERE t.token_hash = $1",
-    )
-    .bind(&hash)
-    .fetch_optional(pg)
-    .await?;
+         WHERE t.token_hash = $1"
+    );
+    let row: Option<ApiTokenUserRow> = sqlx::query_as(AssertSqlSafe(sql)).bind(&hash).fetch_optional(pg).await?;
     let Some(row) = row else { return Ok(None) };
 
     sqlx::query("UPDATE api_tokens SET last_used_at = now() WHERE id = $1").bind(row.token_id).execute(pg).await?;
@@ -183,7 +181,7 @@ async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<Cu
         node_label: row.node_label,
         uid: row.uid,
         gid: row.gid,
-        supplemental_groups: row.supplemental_groups,
+        supplemental_groups: row.supplemental_groups.0,
     }))
 }
 
@@ -192,12 +190,11 @@ async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<Cu
 /// origin's own session (see `proxy.rs`), which lives on a different host and
 /// therefore never receives that cookie.
 pub async fn user_by_id(pg: &sqlx::PgPool, id: i32) -> Result<Option<CurrentUser>, ApiError> {
-    let row: Option<SessionUserRow> = sqlx::query_as(
-        "SELECT id, username, role, node_label, uid, gid, supplemental_groups FROM users WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(pg)
-    .await?;
+    let sql = format!(
+        "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
+         FROM users u WHERE u.id = $1"
+    );
+    let row: Option<SessionUserRow> = sqlx::query_as(AssertSqlSafe(sql)).bind(id).fetch_optional(pg).await?;
     Ok(row.map(|row| CurrentUser {
         id: row.id,
         username: row.username,
@@ -205,7 +202,7 @@ pub async fn user_by_id(pg: &sqlx::PgPool, id: i32) -> Result<Option<CurrentUser
         node_label: row.node_label,
         uid: row.uid,
         gid: row.gid,
-        supplemental_groups: row.supplemental_groups,
+        supplemental_groups: row.supplemental_groups.0,
     }))
 }
 
@@ -234,7 +231,7 @@ struct UserAuthRow {
     node_label: Option<String>,
     uid: Option<i32>,
     gid: Option<i32>,
-    supplemental_groups: Vec<i32>,
+    supplemental_groups: SqlxJson<Vec<GroupInfo>>,
 }
 
 pub async fn login(
@@ -252,12 +249,11 @@ pub async fn login(
         ));
     }
 
-    let row: Option<UserAuthRow> = sqlx::query_as(
-        "SELECT id, username, password_hash, role, node_label, uid, gid, supplemental_groups FROM users WHERE username = $1",
-    )
-    .bind(&req.username)
-    .fetch_optional(&state.pg)
-    .await?;
+    let sql = format!(
+        "SELECT u.id, u.username, u.password_hash, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
+         FROM users u WHERE u.username = $1"
+    );
+    let row: Option<UserAuthRow> = sqlx::query_as(AssertSqlSafe(sql)).bind(&req.username).fetch_optional(&state.pg).await?;
 
     let row = row.filter(|r| verify_password(&r.password_hash, &req.password));
     let Some(row) = row else {
@@ -306,7 +302,7 @@ pub async fn login(
             node_label: row.node_label,
             uid: row.uid,
             gid: row.gid,
-            supplemental_groups: row.supplemental_groups,
+            supplemental_groups: row.supplemental_groups.0,
         }),
     ))
 }

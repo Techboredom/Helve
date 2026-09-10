@@ -44,6 +44,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
     let volume_mount_path = RwSignal::new(String::new());
     let volume_sub_path = RwSignal::new(String::new());
     let home_mount_path = RwSignal::new(String::new());
+    let inject_identity_files = RwSignal::new(false);
     let pvcs: RwSignal<Vec<PvcEntry>> = RwSignal::new(Vec::new());
     let notes = RwSignal::new(None::<String>);
     let secret_env_key = RwSignal::new(None::<String>);
@@ -134,6 +135,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
         volume_mount_path.set(t.volume_mount_path.clone());
         volume_sub_path.set(t.volume_sub_path.clone());
         home_mount_path.set(t.home_mount_path.clone());
+        inject_identity_files.set(t.inject_identity_files);
         secret_env_key.set(t.secret_env_key.clone());
         proxy_enabled.set(t.proxy_enabled);
         strip_prefix.set(t.strip_prefix);
@@ -164,6 +166,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
         volume_mount_path.set(String::new());
         volume_sub_path.set(String::new());
         home_mount_path.set(String::new());
+        inject_identity_files.set(false);
         secret_env_key.set(None);
         proxy_enabled.set(false);
         strip_prefix.set(false);
@@ -221,6 +224,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
             volume_mount_path: non_empty(volume_mount_path.get()),
             volume_sub_path: non_empty(volume_sub_path.get()),
             home_mount_path: non_empty(home_mount_path.get()),
+            inject_identity_files: inject_identity_files.get(),
             generate_secret_for: secret_env_key.get(),
             enable_proxy: proxy_enabled.get(),
             strip_prefix: strip_prefix.get(),

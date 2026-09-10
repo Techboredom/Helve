@@ -26,14 +26,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     than a size cap per user.
   See `charts/helve/README.md`'s "Home directories" section.
 
-- **Per-user supplemental groups.** An admin can now assign a user any
-  number of extra GIDs (`PUT /api/users/{id}/supplemental-groups`), added
-  to the pod `securityContext`'s `supplementalGroups` on top of the
-  existing single UID/GID. Unlike `fsGroup`, supplemental groups are a
-  property of the process rather than something Kubernetes chowns onto a
-  volume, so they're the actual way to grant write access on a `hostPath`
-  home directory (see above) — `fsGroup` is explicitly skipped for
-  `hostPath` volumes.
+- **Named groups and per-user supplemental groups.** A new **Groups**
+  admin tab manages a registry of named GIDs (`groups`/`user_groups`
+  tables) — a GID is meant to be shared by everyone who needs access to
+  the same thing, so it's named once here rather than each user's
+  assignment carrying its own free-text label. An admin can then assign a
+  user any number of these from the Users tab
+  (`PUT /api/users/{id}/supplemental-groups`), added to the pod
+  `securityContext`'s `supplementalGroups` on top of the existing single
+  UID/GID. Unlike `fsGroup`, supplemental groups are a property of the
+  process rather than something Kubernetes chowns onto a volume, so
+  they're the actual way to grant write access on a `hostPath` home
+  directory (see above) — `fsGroup` is explicitly skipped for `hostPath`
+  volumes.
+
+- **Naming UIDs/GIDs inside the container.** A template with
+  `inject_identity_files: true` now gets an init container (running the
+  same image, so it's guaranteed to have a compatible shell) that appends
+  the launching user's UID/GID/supplemental-group names to copies of the
+  image's own `/etc/passwd`/`/etc/group`, mounted back over those paths —
+  so a shell or `ls -l` inside the container shows real names instead of
+  bare numbers, without disturbing whatever system accounts the image
+  already ships with. Off by default; a no-op if the user has no
+  uid/gid/supplemental_groups set at all.
 
 ## [0.4.1] - 2026-09-09
 

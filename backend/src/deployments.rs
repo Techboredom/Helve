@@ -10,7 +10,7 @@ use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec, ReplicaSet};
 use k8s_openapi::api::core::v1::{
     Container, EnvVar, HTTPGetAction, HostPathVolumeSource, PersistentVolumeClaim, PersistentVolumeClaimSpec,
     PersistentVolumeClaimVolumeSource, PodSecurityContext, PodSpec, PodTemplateSpec, Probe, ResourceRequirements,
-    Service, ServicePort, ServiceSpec, Volume, VolumeMount, VolumeResourceRequirements,
+    SecurityContext, Service, ServicePort, ServiceSpec, Volume, VolumeMount, VolumeResourceRequirements,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
@@ -187,9 +187,126 @@ fn security_context_for(user: &CurrentUser) -> Option<PodSecurityContext> {
         run_as_group: user.gid.map(i64::from),
         fs_group: user.gid.map(i64::from),
         supplemental_groups: (!user.supplemental_groups.is_empty())
-            .then(|| user.supplemental_groups.iter().map(|&g| i64::from(g)).collect()),
+            .then(|| user.supplemental_groups.iter().map(|g| i64::from(g.gid)).collect()),
         ..Default::default()
     })
+}
+
+/// Shell-single-quotes `s`, escaping any embedded single quote via the
+/// standard `'\''` trick (close the quoted string, an escaped literal
+/// quote, reopen it) — used any time text ends up inside the generated
+/// init-container script below. `user.username` and each supplemental
+/// group's `name` are already restricted to a safe charset by
+/// `validate::username`/`validate::group_name`, but `req.home_mount_path`
+/// is only checked to be an absolute path, not restricted in charset —
+/// this is what keeps embedding it safe regardless of what's in it.
+fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// Builds the init container + shared `emptyDir` + the two `/etc/passwd`,
+/// `/etc/group` `subPath` mounts for `req.inject_identity_files`. `None`
+/// if the template didn't ask for it, or the launching user has no
+/// uid/gid/supplemental_groups set at all — nothing to name that the
+/// image's own files don't already cover.
+///
+/// Copies the *main container's own image's* `/etc/passwd`/`/etc/group`
+/// into the shared volume, then appends the entries this user needs,
+/// rather than replacing those files outright — preserves whatever system
+/// accounts (`nobody`, a service account the entrypoint expects, ...) the
+/// image already ships with. Runs as that same image so the copy is
+/// guaranteed format-compatible and the shell it invokes is whatever that
+/// image actually provides — this feature requires the image to have one,
+/// which is why it's opt-in per template rather than automatic.
+///
+/// Deliberately runs as root (its own `SecurityContext`, overriding the
+/// pod-level one from `security_context_for`), regardless of what UID/GID
+/// the main container runs as: it only ever touches its own private,
+/// ephemeral `emptyDir`, and forcing this one short-lived container back
+/// to root sidesteps needing `fsGroup` to happen to be set (it isn't, if
+/// only `uid` was assigned and not `gid`) for it to be able to write there
+/// at all.
+fn identity_files_init_container(req: &CreateDeploymentRequest, user: &CurrentUser) -> Option<(Container, Volume, Vec<VolumeMount>)> {
+    if !req.inject_identity_files {
+        return None;
+    }
+    if user.uid.is_none() && user.gid.is_none() && user.supplemental_groups.is_empty() {
+        return None;
+    }
+
+    // A colon or newline would corrupt passwd's own field structure (":"
+    // is passwd's field separator) — falls back to a synthesized, always-
+    // safe path rather than rejecting the whole launch over it.
+    let home = req
+        .home_mount_path
+        .as_deref()
+        .filter(|p| !p.is_empty() && !p.contains(':') && !p.contains('\n'))
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("/home/{}", user.username));
+
+    // One line per distinct GID: the primary gid (if set) first, named
+    // from a matching entry in supplemental_groups if the admin happened
+    // to assign one with this exact GID, else falling back to the classic
+    // "private group named after the user" convention `useradd` itself
+    // defaults to — then each supplemental group, skipping any GID
+    // already covered by the primary one.
+    let mut group_lines: Vec<(i32, String)> = Vec::new();
+    if let Some(gid) = user.gid {
+        let name = user.supplemental_groups.iter().find(|g| g.gid == gid).map(|g| g.name.clone()).unwrap_or_else(|| user.username.clone());
+        group_lines.push((gid, name));
+    }
+    for g in &user.supplemental_groups {
+        if !group_lines.iter().any(|(gid, _)| *gid == g.gid) {
+            group_lines.push((g.gid, g.name.clone()));
+        }
+    }
+
+    let mut script = String::from("set -e\nmkdir -p /mnt/identity\ncp /etc/passwd /etc/group /mnt/identity/\n");
+    if let Some(uid) = user.uid {
+        // The GID in this line matters far less than it looks: `id`/`ls`
+        // resolve a running process's actual group names via getgrgid()
+        // against its real, kernel-level GIDs (runAsGroup/supplementalGroups
+        // above), not by re-reading this field — it only matters to tools
+        // that call initgroups() fresh from this file, which nothing in a
+        // container that's already running does. 0 (root, already present
+        // in the copied-forward /etc/group) is a harmless fallback.
+        let gid = user.gid.unwrap_or(0);
+        let line = format!("{}:x:{uid}:{gid}:{}:{home}:/bin/sh", user.username, user.username);
+        script.push_str(&format!("echo {} >> /mnt/identity/passwd\n", shell_single_quote(&line)));
+    }
+    for (gid, name) in &group_lines {
+        let line = format!("{name}:x:{gid}:{}", user.username);
+        script.push_str(&format!("echo {} >> /mnt/identity/group\n", shell_single_quote(&line)));
+    }
+
+    let container = Container {
+        name: "identity-files".to_string(),
+        image: Some(req.image.clone()),
+        command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), script]),
+        security_context: Some(SecurityContext { run_as_user: Some(0), run_as_group: Some(0), ..Default::default() }),
+        volume_mounts: Some(vec![VolumeMount {
+            name: "identity-files".to_string(),
+            mount_path: "/mnt/identity".to_string(),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    };
+    let volume = Volume { name: "identity-files".to_string(), empty_dir: Some(Default::default()), ..Default::default() };
+    let mounts = vec![
+        VolumeMount {
+            name: "identity-files".to_string(),
+            mount_path: "/etc/passwd".to_string(),
+            sub_path: Some("passwd".to_string()),
+            ..Default::default()
+        },
+        VolumeMount {
+            name: "identity-files".to_string(),
+            mount_path: "/etc/group".to_string(),
+            sub_path: Some("group".to_string()),
+            ..Default::default()
+        },
+    ];
+    Some((container, volume, mounts))
 }
 
 /// Ensures a user's home-directory PVC exists (`HomeDrives::DynamicPvc`
@@ -516,6 +633,11 @@ pub async fn create_deployment(
             ..Default::default()
         });
     }
+    let init_containers = identity_files_init_container(&req, &user).map(|(container, volume, mounts)| {
+        pod_volumes.push(volume);
+        pod_volume_mounts.extend(mounts);
+        vec![container]
+    });
     let volumes = (!pod_volumes.is_empty()).then_some(pod_volumes);
     let volume_mounts = (!pod_volume_mounts.is_empty()).then_some(pod_volume_mounts);
 
@@ -564,6 +686,7 @@ pub async fn create_deployment(
                 spec: Some(PodSpec {
                     node_selector: node_selector_for(&user),
                     security_context: security_context_for(&user),
+                    init_containers,
                     volumes,
                     containers: vec![Container {
                         name: scoped_name.clone(),
@@ -1231,6 +1354,15 @@ pub async fn list_pvcs(_user: CurrentUser, State(state): State<AppState>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shell_single_quote_escapes_embedded_quotes() {
+        assert_eq!(shell_single_quote("plain"), "'plain'");
+        assert_eq!(shell_single_quote("it's"), r"'it'\''s'");
+        // The injection shape this exists to defeat: a would-be path that
+        // tries to close the quoted string and run a second command.
+        assert_eq!(shell_single_quote("'; rm -rf / #"), r"''\''; rm -rf / #'");
+    }
 
     #[test]
     fn slugify_collapses_and_trims_non_alphanumerics() {

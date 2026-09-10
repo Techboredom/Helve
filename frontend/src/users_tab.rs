@@ -1,8 +1,9 @@
 use common::{
-    CreateUserRequest, ResetPasswordRequest, Role, SetNodeLabelRequest, SetSupplementalGroupsRequest, SetUidGidRequest, UserInfo,
+    CreateUserRequest, GroupInfo, ResetPasswordRequest, Role, SetNodeLabelRequest, SetSupplementalGroupsRequest, SetUidGidRequest,
+    UserInfo,
 };
 use leptos::prelude::*;
-use leptos::tachys::dom::event_target_value;
+use leptos::tachys::dom::{event_target_checked, event_target_value};
 use leptos::task::spawn_local;
 
 use crate::api;
@@ -36,8 +37,9 @@ pub fn UsersTab() -> impl IntoView {
     let uidgid_saving = RwSignal::new(false);
     let uidgid_result: RwSignal<Option<Result<String, String>>> = RwSignal::new(None);
 
+    let groups_catalog: RwSignal<Vec<GroupInfo>> = RwSignal::new(Vec::new());
     let groups_target: RwSignal<Option<(i32, String)>> = RwSignal::new(None);
-    let groups_value = RwSignal::new(String::new());
+    let groups_selected: RwSignal<Vec<i32>> = RwSignal::new(Vec::new());
     let groups_saving = RwSignal::new(false);
     let groups_result: RwSignal<Option<Result<String, String>>> = RwSignal::new(None);
 
@@ -53,6 +55,12 @@ pub fn UsersTab() -> impl IntoView {
         });
     };
     refresh();
+
+    spawn_local(async move {
+        if let Ok(list) = api::get_json::<Vec<GroupInfo>>("/api/groups").await {
+            groups_catalog.set(list);
+        }
+    });
 
     let delete_user = move |id: i32| {
         let confirmed = web_sys::window()
@@ -134,9 +142,9 @@ pub fn UsersTab() -> impl IntoView {
                                 let groups_display = if u.supplemental_groups.is_empty() {
                                     "—".to_string()
                                 } else {
-                                    u.supplemental_groups.iter().map(|g| g.to_string()).collect::<Vec<_>>().join(", ")
+                                    u.supplemental_groups.iter().map(|g| g.name.clone()).collect::<Vec<_>>().join(", ")
                                 };
-                                let current_groups = u.supplemental_groups.iter().map(|g| g.to_string()).collect::<Vec<_>>().join(", ");
+                                let current_groups: Vec<i32> = u.supplemental_groups.iter().map(|g| g.id).collect();
                                 view! {
                                     <tr>
                                         <td>{u.username.clone()}</td>
@@ -184,7 +192,7 @@ pub fn UsersTab() -> impl IntoView {
                                                 class="icon-button"
                                                 on:click=move |_| {
                                                     groups_target.set(Some((id, groups_username.clone())));
-                                                    groups_value.set(current_groups.clone());
+                                                    groups_selected.set(current_groups.clone());
                                                     groups_result.set(None);
                                                 }
                                             >
@@ -385,11 +393,11 @@ pub fn UsersTab() -> impl IntoView {
                             if groups_saving.get() {
                                 return;
                             }
-                            let groups = groups_value.get();
+                            let group_ids = groups_selected.get();
                             groups_saving.set(true);
                             groups_result.set(None);
                             spawn_local(async move {
-                                let outcome = set_supplemental_groups(id, groups).await;
+                                let outcome = set_supplemental_groups(id, group_ids).await;
                                 groups_saving.set(false);
                                 match outcome {
                                     Ok(msg) => {
@@ -404,17 +412,43 @@ pub fn UsersTab() -> impl IntoView {
                         view! {
                             <h3 class="section-heading">{format!("Supplemental groups for \"{target_username}\"")}</h3>
                             <form class="deploy-form" on:submit=on_groups_submit>
-                                <label>
-                                    "Group IDs (comma-separated)"
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. 2000, 2001"
-                                        prop:value=move || groups_value.get()
-                                        on:input=move |ev| groups_value.set(event_target_value(&ev))
-                                    />
-                                </label>
+                                <fieldset>
+                                    <legend>"Groups"</legend>
+                                    <Show
+                                        when=move || !groups_catalog.get().is_empty()
+                                        fallback=|| view! { <p class="hint">"No named groups yet — add one on the Groups tab."</p> }
+                                    >
+                                        <For each=move || groups_catalog.get() key=|g| g.id let(g)>
+                                            {
+                                                let group_id = g.id;
+                                                view! {
+                                                    <label class="checkbox">
+                                                        <input
+                                                            type="checkbox"
+                                                            prop:checked=move || groups_selected.get().contains(&group_id)
+                                                            on:change=move |ev| {
+                                                                let checked = event_target_checked(&ev);
+                                                                groups_selected
+                                                                    .update(|selected| {
+                                                                        if checked {
+                                                                            if !selected.contains(&group_id) {
+                                                                                selected.push(group_id);
+                                                                            }
+                                                                        } else {
+                                                                            selected.retain(|id| *id != group_id);
+                                                                        }
+                                                                    });
+                                                            }
+                                                        />
+                                                        {format!("{} (GID {})", g.name, g.gid)}
+                                                    </label>
+                                                }
+                                            }
+                                        </For>
+                                    </Show>
+                                </fieldset>
                                 <p class="hint">
-                                    "Every future launch from this account adds these as extra GIDs (pod securityContext supplementalGroups) alongside GID above — the POSIX/NFS pattern of belonging to several groups, each granting access to a different share. Existing deployments aren't affected. Leave blank to clear."
+                                    "Every future launch from this account adds these as extra GIDs (pod securityContext supplementalGroups) alongside GID above — the POSIX/NFS pattern of belonging to several groups, each granting access to a different share. Existing deployments aren't affected."
                                 </p>
                                 <div class="form-actions">
                                     <button type="submit" disabled=move || groups_saving.get()>
@@ -492,20 +526,11 @@ async fn set_uid_gid(id: i32, uid: String, gid: String) -> Result<String, String
     Ok(if cleared { "UID/GID cleared.".to_string() } else { "UID/GID saved.".to_string() })
 }
 
-async fn set_supplemental_groups(id: i32, value: String) -> Result<String, String> {
-    let supplemental_groups = value
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.parse::<i32>().map_err(|_| format!("\"{s}\" isn't a whole number")))
-        .collect::<Result<Vec<i32>, String>>()?;
-    let cleared = supplemental_groups.is_empty();
-    let _: UserInfo = api::put_json(
-        &format!("/api/users/{id}/supplemental-groups"),
-        &SetSupplementalGroupsRequest { supplemental_groups },
-    )
-    .await
-    .map_err(|err| format!("Failed to save supplemental groups: {err}"))?;
+async fn set_supplemental_groups(id: i32, group_ids: Vec<i32>) -> Result<String, String> {
+    let cleared = group_ids.is_empty();
+    let _: UserInfo = api::put_json(&format!("/api/users/{id}/supplemental-groups"), &SetSupplementalGroupsRequest { group_ids })
+        .await
+        .map_err(|err| format!("Failed to save supplemental groups: {err}"))?;
     Ok(if cleared { "Supplemental groups cleared.".to_string() } else { "Supplemental groups saved.".to_string() })
 }
 

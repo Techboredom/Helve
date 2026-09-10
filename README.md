@@ -429,6 +429,12 @@ can use:
   (`strategy=dynamic`), or mounts one PVC you provision yourself into
   every user's pod with `subPath: <username>` (`strategy=shared`),
   creating nothing itself.
+- **Inject username/group names** — `inject_identity_files`, off by
+  default, adds an init container that names the launching user's UID/GID/
+  supplemental groups in the container's own `/etc/passwd`/`/etc/group`
+  (appended to copies of the image's own, not replacing them), so a shell
+  or `ls -l` shows names instead of bare numbers. Requires the image to
+  have a POSIX shell; see "Naming UIDs/GIDs inside the container" below.
 - **Readiness probe path** — `readiness_path`, e.g. `/health`, attaches an
   HTTP `readinessProbe` to the container against `container_port` (400 if
   `container_port` isn't also set), with generous timing
@@ -823,6 +829,20 @@ the single primary GID above. This is the POSIX/NFS pattern of belonging to
 several groups at once, each granting access to a different share, rather
 than everything hinging on one primary GID.
 
+Assignment is from the **Groups** admin tab's registry
+(`groups`/`user_groups` tables, `backend/src/groups.rs`), not free-typed
+GIDs: an admin creates a named group once (a display name plus the real
+GID it means, `POST /api/groups`), and any number of users can then be
+assigned to it. A GID is meant to be shared by everyone who needs access to
+the same thing, so naming it once here — rather than letting each user's
+assignment carry its own free-text label — is the only design where
+everyone sharing that GID agrees on what it's called. Deleting a group
+that's still assigned to a user is refused (`ON DELETE RESTRICT` on
+`user_groups.group_id`, surfaced as a 400 rather than the generic 503
+`ApiError::Sqlx` would otherwise produce), same "refuse rather than
+silently change what someone's launches run as" reasoning as `delete_user`
+refusing to delete a user who still owns running Deployments.
+
 It also matters for a reason specific to this codebase: `fsGroup` above
 only gets a volume's *files* to come out group-owned as that GID on volume
 types that support it — `hostPath` volumes (used by home directories in
@@ -836,6 +856,53 @@ write access to files owned by some GID (an NFS export configured that
 way, say), adding that GID as a supplemental group is what actually lets a
 `hostPath`-mode home directory be writable — `fsGroup` alone can't do it
 there.
+
+## Naming UIDs/GIDs inside the container: `inject_identity_files`
+
+None of the above changes what a shell or `ls -l` *inside* the launched
+container shows for these UIDs/GIDs — Kubernetes has no mechanism for that
+at all, since `/etc/passwd`/`/etc/group` are just files baked into the
+image, with no idea what identity a particular launch was actually
+assigned. A template with `inject_identity_files: true` (Templates admin
+tab) closes that gap: at launch time, if the user has a UID, GID, or any
+supplemental groups set at all (a no-op otherwise — nothing to name that
+the image's own files don't already cover), an init container is added
+that:
+
+1. Runs the *same image* as the main container, so its copy of
+   `/etc/passwd`/`/etc/group` is guaranteed format-compatible and whatever
+   shell it invokes (`/bin/sh`) is the image's own — this is why the
+   feature requires the image to actually have one, and is opt-in per
+   template rather than automatic.
+2. Copies those two files into a shared `emptyDir`, then **appends** —
+   never replaces — an entry naming the launching user's UID and each
+   distinct GID they're running with. Appending rather than replacing
+   preserves whatever system accounts (`nobody`, a service account the
+   entrypoint expects, ...) the image already ships with; a wholesale
+   ConfigMap-replace (a more common version of this pattern) would destroy
+   them.
+3. The main container mounts that `emptyDir` over `/etc/passwd` and
+   `/etc/group` via two `subPath` mounts — Kubernetes runs init containers
+   to completion before starting the main one, so there's no race between
+   the files being written and being read.
+
+The init container deliberately runs as root (its own `SecurityContext`,
+not the pod-level one from the UID/GID above) — it only ever touches its
+own private, ephemeral volume, and this sidesteps needing `fsGroup` to
+happen to be set (it isn't, if only a UID was assigned and not a GID) for
+it to be able to write there at all.
+
+Every value that ends up in the generated `/etc/passwd`/`/etc/group` lines
+is either a validated username/group name (`validate::username`/
+`validate::group_name` — lowercase alphanumeric and `-` only) or a plain
+integer, except `home_mount_path`, which is only checked to be an absolute
+path. Building the actual shell script (`deployments::identity_files_init_container`)
+single-quotes every generated line via `shell_single_quote`, escaping any
+embedded single quote with the standard `'\''` trick — unit-tested
+directly, including against an actual injection-shaped payload run through
+a real shell (not just asserted on the string transformation) — so nothing
+in `home_mount_path` can break out of the generated script regardless of
+its charset.
 
 ## Admin API tokens
 

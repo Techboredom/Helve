@@ -6,6 +6,7 @@ mod create_deployment_tab;
 mod deployment_manage;
 mod env_editor;
 mod format;
+mod groups_tab;
 mod images_tab;
 mod login;
 mod pod_detail;
@@ -23,6 +24,7 @@ use api_tokens_tab::ApiTokensTab;
 use common::{Role, UserInfo};
 use create_deployment_tab::CreateDeploymentTab;
 use gloo_net::http::Request;
+use groups_tab::GroupsTab;
 use images_tab::ImagesTab;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -45,6 +47,7 @@ enum Tab {
     Templates,
     Images,
     Users,
+    Groups,
     Quotas,
     ApiTokens,
 }
@@ -149,6 +152,13 @@ fn AppShell(user: UserInfo, current_user: RwSignal<Option<UserInfo>>, theme: RwS
                         </button>
                         <button
                             class="tab-button"
+                            class:active=move || tab.get() == Tab::Groups
+                            on:click=move |_| tab.set(Tab::Groups)
+                        >
+                            "Groups"
+                        </button>
+                        <button
+                            class="tab-button"
                             class:active=move || tab.get() == Tab::Quotas
                             on:click=move |_| tab.set(Tab::Quotas)
                         >
@@ -202,6 +212,9 @@ fn AppShell(user: UserInfo, current_user: RwSignal<Option<UserInfo>>, theme: RwS
                 </div>
                 <div class:hidden=move || tab.get() != Tab::Users>
                     <UsersTab />
+                </div>
+                <div class:hidden=move || tab.get() != Tab::Groups>
+                    <GroupsTab />
                 </div>
                 <div class:hidden=move || tab.get() != Tab::Quotas>
                     <QuotasTab />

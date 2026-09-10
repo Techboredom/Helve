@@ -215,6 +215,27 @@ pub fn username(value: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// A named group's display name (Groups admin tab) — same grammar as
+/// `username` (POSIX group names follow the same convention as usernames),
+/// and just as load-bearing here: this ends up written verbatim into a
+/// generated `/etc/group` line and a shell heredoc
+/// (`deployments::identity_files_init_container`), so the restrictive
+/// charset is also what keeps that safe, not just cosmetic.
+pub fn group_name(value: &str) -> Result<(), ApiError> {
+    if value.len() < 3 || value.len() > 32 {
+        return Err(bad("name", "must be 3-32 characters"));
+    }
+    let bytes = value.as_bytes();
+    let is_alphanumeric = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+    if !is_alphanumeric(bytes[0]) || !is_alphanumeric(bytes[bytes.len() - 1]) {
+        return Err(bad("name", "must start and end with a lowercase letter or digit"));
+    }
+    if !bytes.iter().all(|&b| is_alphanumeric(b) || b == b'-') {
+        return Err(bad("name", "must be lowercase letters, digits, or '-' only"));
+    }
+    Ok(())
+}
+
 /// A Kubernetes node label in `key=value` form, e.g. `node-type=cpu` or
 /// `nvidia.com/gpu.product=H100`. The key follows the label-key grammar (an
 /// optional DNS-subdomain prefix, `/`, then a DNS-1123-ish name segment); the
@@ -266,16 +287,18 @@ pub fn uid_gid(field: &str, value: i32) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// A user's supplemental GID list (pod securityContext `supplementalGroups`).
-/// Same per-value rule as `uid_gid` — 0 is root, so it's almost certainly a
-/// mistake here too — plus a count cap; Kubernetes itself caps this list at
-/// 4096 entries, but nobody legitimately needs more than a handful.
-pub fn supplemental_groups(values: &[i32]) -> Result<(), ApiError> {
+/// A user's supplemental-groups assignment — `group_ids` referencing rows
+/// in the named-groups registry (`groups.id`), not raw GIDs; the handler
+/// checks they actually exist. Just a shape/count check here: real
+/// primary-key ids are always positive, and the count cap matches
+/// `uid_gid`-based lists elsewhere — nobody legitimately needs more than a
+/// handful, though Kubernetes itself would tolerate far more.
+pub fn group_ids(values: &[i32]) -> Result<(), ApiError> {
     if values.len() > 32 {
-        return Err(bad("supplemental_groups", "must be at most 32 groups"));
+        return Err(bad("group_ids", "must be at most 32 groups"));
     }
-    for &value in values {
-        uid_gid("supplemental_groups", value)?;
+    if values.iter().any(|&v| v <= 0) {
+        return Err(bad("group_ids", "must all be positive"));
     }
     Ok(())
 }
@@ -459,12 +482,21 @@ mod tests {
     }
 
     #[test]
-    fn supplemental_groups_rejects_root_negative_and_too_many() {
-        assert!(is_ok(supplemental_groups(&[])));
-        assert!(is_ok(supplemental_groups(&[1000, 2000])));
-        assert!(!is_ok(supplemental_groups(&[1000, 0])));
-        assert!(!is_ok(supplemental_groups(&[-1])));
-        assert!(!is_ok(supplemental_groups(&(1..=33).collect::<Vec<i32>>())));
+    fn group_ids_rejects_nonpositive_and_too_many() {
+        assert!(is_ok(group_ids(&[])));
+        assert!(is_ok(group_ids(&[1, 2])));
+        assert!(!is_ok(group_ids(&[1, 0])));
+        assert!(!is_ok(group_ids(&[-1])));
+        assert!(!is_ok(group_ids(&(1..=33).collect::<Vec<i32>>())));
+    }
+
+    #[test]
+    fn group_name_matches_username_grammar() {
+        assert!(is_ok(group_name("data-team")));
+        assert!(is_ok(group_name("abc")));
+        assert!(!is_ok(group_name("ab")), "too short");
+        assert!(!is_ok(group_name("Data-Team")), "must be lowercase");
+        assert!(!is_ok(group_name("-abc")), "must start alphanumeric");
     }
 
     #[test]
