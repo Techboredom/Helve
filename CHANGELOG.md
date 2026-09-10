@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-09
+
+### Added
+
+- The Helve mark in the app header.
+
+### Changed
+
+- The app's colors follow the Helve palette instead of Aether's.
+- Tagged releases also push the Helm chart to this cluster's own Harbor,
+  alongside the existing GHCR publish — Harbor is what this cluster's Argo
+  CD Application actually pulls the image from, so its chart should live
+  there too.
+
 ## [0.4.0] - 2026-09-09
 
 The project is renamed **Aether -> Helve**. Entries below this one still say
@@ -322,7 +336,8 @@ own cluster.
   section still listed it as missing, contradicting the security-notes
   section describing the throttle).
 
-[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Techboredom/Helve/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Techboredom/Helve/releases/tag/v0.4.0
 [0.3.1]: https://github.com/Techboredom/Aether/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Techboredom/Aether/releases/tag/v0.3.0
