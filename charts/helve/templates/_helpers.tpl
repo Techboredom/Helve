@@ -119,11 +119,19 @@ release rather than being dead code sitting in an unused named template.
 {{- end -}}
 
 {{- if eq .Values.homeDrives.mode "pvc" -}}
+{{- if eq .Values.homeDrives.pvc.strategy "dynamic" -}}
 {{- if not .Values.homeDrives.pvc.storageClassName -}}
-{{ fail "homeDrives.mode=pvc requires homeDrives.pvc.storageClassName (a ReadWriteMany-capable StorageClass)." }}
+{{ fail "homeDrives.mode=pvc with strategy=dynamic requires homeDrives.pvc.storageClassName (a ReadWriteMany-capable StorageClass)." }}
 {{- end -}}
 {{- if not .Values.homeDrives.pvc.size -}}
-{{ fail "homeDrives.mode=pvc requires homeDrives.pvc.size, e.g. \"10Gi\"." }}
+{{ fail "homeDrives.mode=pvc with strategy=dynamic requires homeDrives.pvc.size, e.g. \"10Gi\"." }}
+{{- end -}}
+{{- else if eq .Values.homeDrives.pvc.strategy "shared" -}}
+{{- if not .Values.homeDrives.pvc.existingClaimName -}}
+{{ fail "homeDrives.mode=pvc with strategy=shared requires homeDrives.pvc.existingClaimName (a PersistentVolumeClaim you've already provisioned)." }}
+{{- end -}}
+{{- else -}}
+{{ fail (printf "homeDrives.pvc.strategy must be \"dynamic\" or \"shared\", got %q." .Values.homeDrives.pvc.strategy) }}
 {{- end -}}
 {{- end -}}
 

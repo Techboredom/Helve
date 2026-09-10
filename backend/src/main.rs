@@ -81,23 +81,50 @@ struct Args {
     /// filesystem (NFS, CephFS, a parallel filesystem, ...) mounted at this
     /// path at the OS level — Kubernetes sees an identical path on any
     /// node, so no StorageClass or CSI driver is involved at all. Mutually
-    /// exclusive with `--home-drives-storage-class`.
-    #[arg(long, env = "HOME_DRIVES_HOST_BASE_PATH", conflicts_with = "home_drives_storage_class")]
+    /// exclusive with the two flags below.
+    #[arg(
+        long,
+        env = "HOME_DRIVES_HOST_BASE_PATH",
+        conflicts_with_all = ["home_drives_storage_class", "home_drives_shared_claim"]
+    )]
     home_drives_host_base_path: Option<String>,
 
     /// Provisions one PersistentVolumeClaim per user ("home-<username>")
-    /// from this StorageClass instead of a host path. Must support
-    /// ReadWriteMany if a user can ever run more than one environment at
-    /// once — a ReadWriteOnce claim can only ever be attached to one node
-    /// at a time, and Helve doesn't check which kind this is before
-    /// creating the claim. Requires `--home-drives-storage-size`.
-    #[arg(long, env = "HOME_DRIVES_STORAGE_CLASS", requires = "home_drives_storage_size")]
+    /// from this StorageClass, created on that user's first home-drive
+    /// launch. Must support ReadWriteMany if a user can ever run more than
+    /// one environment at once — a ReadWriteOnce claim can only ever be
+    /// attached to one node at a time, and Helve doesn't check which kind
+    /// this is before creating the claim. Requires
+    /// `--home-drives-storage-size`; mutually exclusive with
+    /// `--home-drives-host-base-path` and `--home-drives-shared-claim`.
+    #[arg(
+        long,
+        env = "HOME_DRIVES_STORAGE_CLASS",
+        requires = "home_drives_storage_size",
+        conflicts_with = "home_drives_shared_claim"
+    )]
     home_drives_storage_class: Option<String>,
 
     /// Size of each per-user home PVC, e.g. "20Gi". Only meaningful with
     /// `--home-drives-storage-class`.
     #[arg(long, env = "HOME_DRIVES_STORAGE_SIZE")]
     home_drives_storage_size: Option<String>,
+
+    /// Mounts this single, already-existing PersistentVolumeClaim (an RWX
+    /// share, or a statically-bound PV/PVC pair — provisioned out-of-band,
+    /// the same way the existing volume_claim_name storage mount already
+    /// works) into every user's pod with `subPath: <username>`, instead of
+    /// a distinct PVC per user. Kubernetes creates that subdirectory on the
+    /// volume automatically the first time it's mounted, so this needs no
+    /// per-user provisioning step, at the cost of one shared capacity pool
+    /// rather than a size cap per user. Mutually exclusive with the two
+    /// flags above.
+    #[arg(
+        long,
+        env = "HOME_DRIVES_SHARED_CLAIM",
+        conflicts_with_all = ["home_drives_host_base_path", "home_drives_storage_class"]
+    )]
+    home_drives_shared_claim: Option<String>,
 }
 
 #[tokio::main]
@@ -154,26 +181,35 @@ async fn main() -> anyhow::Result<()> {
         ),
     }
 
-    // `conflicts_with`/`requires` on these flags means clap already rules out
-    // both being set, or a storage class with no size — this only has to
-    // handle the three shapes clap actually lets through.
-    let home_drives = match (&args.home_drives_host_base_path, &args.home_drives_storage_class) {
-        (Some(base_path), None) => {
+    // `conflicts_with`/`conflicts_with_all`/`requires` across these four
+    // flags means clap already rules out more than one of the three modes
+    // being set at once, or a storage class with no size — this only has
+    // to handle the four shapes clap actually lets through.
+    let home_drives = match (
+        &args.home_drives_host_base_path,
+        &args.home_drives_storage_class,
+        &args.home_drives_shared_claim,
+    ) {
+        (Some(base_path), None, None) => {
             Some(state::HomeDrives::HostPath { base_path: base_path.trim_end_matches('/').to_string() })
         }
-        (None, Some(storage_class)) => Some(state::HomeDrives::Pvc {
+        (None, Some(storage_class), None) => Some(state::HomeDrives::DynamicPvc {
             storage_class: storage_class.clone(),
             size: args.home_drives_storage_size.clone().expect("clap requires HOME_DRIVES_STORAGE_SIZE alongside HOME_DRIVES_STORAGE_CLASS"),
         }),
-        (None, None) => None,
-        (Some(_), Some(_)) => unreachable!("clap's conflicts_with rules this out"),
+        (None, None, Some(claim_name)) => Some(state::HomeDrives::SharedPvc { claim_name: claim_name.clone() }),
+        (None, None, None) => None,
+        _ => unreachable!("clap's conflicts_with_all rules out more than one of these three being set"),
     };
     match &home_drives {
         Some(state::HomeDrives::HostPath { base_path }) => {
             tracing::info!(base_path, "home directories: hostPath mode")
         }
-        Some(state::HomeDrives::Pvc { storage_class, size }) => {
-            tracing::info!(storage_class, size, "home directories: PVC mode")
+        Some(state::HomeDrives::DynamicPvc { storage_class, size }) => {
+            tracing::info!(storage_class, size, "home directories: dynamic-PVC-per-user mode")
+        }
+        Some(state::HomeDrives::SharedPvc { claim_name }) => {
+            tracing::info!(claim_name, "home directories: shared-PVC-with-subPath mode")
         }
         None => {}
     }

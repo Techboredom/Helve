@@ -88,11 +88,14 @@ spec:
             {{- if eq .Values.homeDrives.mode "hostPath" }}
             - name: HOME_DRIVES_HOST_BASE_PATH
               value: {{ .Values.homeDrives.hostPath.basePath | quote }}
-            {{- else if eq .Values.homeDrives.mode "pvc" }}
+            {{- else if and (eq .Values.homeDrives.mode "pvc") (eq .Values.homeDrives.pvc.strategy "dynamic") }}
             - name: HOME_DRIVES_STORAGE_CLASS
               value: {{ .Values.homeDrives.pvc.storageClassName | quote }}
             - name: HOME_DRIVES_STORAGE_SIZE
               value: {{ .Values.homeDrives.pvc.size | quote }}
+            {{- else if and (eq .Values.homeDrives.mode "pvc") (eq .Values.homeDrives.pvc.strategy "shared") }}
+            - name: HOME_DRIVES_SHARED_CLAIM
+              value: {{ .Values.homeDrives.pvc.existingClaimName | quote }}
             {{- end }}
             {{- if .Values.proxy.separateOrigins }}
             # Serves each proxied deployment from its own origin,

@@ -121,8 +121,10 @@ and their required credentials.
 | `database.deploy.storage.className` | `""` | Empty uses the cluster's default StorageClass. |
 | `homeDrives.mode` | `off` | `off`, `hostPath`, or `pvc`. See "Home directories" below. |
 | `homeDrives.hostPath.basePath` | `""` | **Required when `mode=hostPath`.** Path every node already has a shared filesystem mounted at. |
-| `homeDrives.pvc.storageClassName` | `""` | **Required when `mode=pvc`.** Must support `ReadWriteMany`. |
-| `homeDrives.pvc.size` | `10Gi` | Size of each per-user home PVC. |
+| `homeDrives.pvc.strategy` | `dynamic` | `dynamic` (one PVC per user, created by Helve) or `shared` (one PVC you provision, subPath per user). |
+| `homeDrives.pvc.storageClassName` | `""` | **Required when `mode=pvc`, `strategy=dynamic`.** Must support `ReadWriteMany`. |
+| `homeDrives.pvc.size` | `10Gi` | Size of each per-user home PVC. Only meaningful with `strategy=dynamic`. |
+| `homeDrives.pvc.existingClaimName` | `""` | **Required when `mode=pvc`, `strategy=shared`.** The PVC already provisioned for this. |
 | `adminBootstrap.existingSecret` | `""` | Existing Secret (key `password`) for the first-boot admin account. |
 | `adminBootstrap.password` | `""` | Convenience alternative to `existingSecret`; ends up in Helm release history. |
 | `nodeSelector` | `{}` | |
@@ -154,17 +156,31 @@ Two backends, chosen with `homeDrives.mode`:
   path at the OS level — from Kubernetes' point of view the path looks
   identical on any node, so no StorageClass or CSI driver is involved at
   all, and there's no `ReadWriteMany` requirement to satisfy.
-- **`pvc`** — Helve provisions one `PersistentVolumeClaim` per user
-  (`home-<username>`) from `homeDrives.pvc.storageClassName`, sized
-  `homeDrives.pvc.size`, on that user's first home-drive launch. That
-  StorageClass **must support `ReadWriteMany`** if a user can ever run more
-  than one home-drive environment at once — a `ReadWriteOnce` claim only
-  ever attaches to one node at a time, and the chart has no way to check
-  which kind a given StorageClass actually provisions before creating the
-  claim. This is the one place this chart creates a PersistentVolumeClaim
-  itself (see `rbac.yaml`'s comment) — and, matching the "Helve never
-  deletes X" caution applied everywhere else in this project, it never
-  deletes one either, not even on user deletion.
+- **`pvc`** — one `PersistentVolumeClaim`-backed home directory, in one of
+  two strategies (`homeDrives.pvc.strategy`):
+  - **`dynamic`** (default) — Helve creates one PVC per user
+    (`home-<username>`) from `homeDrives.pvc.storageClassName`, sized
+    `homeDrives.pvc.size`, on that user's first home-drive launch. That
+    StorageClass **must support `ReadWriteMany`** if a user can ever run
+    more than one home-drive environment at once — a `ReadWriteOnce` claim
+    only ever attaches to one node at a time, and the chart has no way to
+    check which kind a given StorageClass actually provisions before
+    creating the claim. This is the one place this chart creates a
+    PersistentVolumeClaim itself (see `rbac.yaml`'s comment) — and,
+    matching the "Helve never deletes X" caution applied everywhere else
+    in this project, it never deletes one either, not even on user
+    deletion.
+  - **`shared`** — you provision exactly one PVC yourself
+    (`homeDrives.pvc.existingClaimName`), the same out-of-band way the
+    existing shared-model-cache storage mount already works, and Helve
+    mounts that single claim into every user's pod with
+    `subPath: <username>` — Kubernetes creates that subdirectory on the
+    volume automatically the first time it's mounted, so this needs no
+    per-user provisioning step and no `create` RBAC on PVCs at all. The
+    tradeoff is one shared capacity pool rather than a size cap per user.
+    Works with anything RWX-capable, including a statically-bound
+    PV/PVC pair — same as `hostPath` mode, dynamic provisioning isn't
+    required, just a shared, writable volume.
 
 File ownership and permissions on whatever the mount resolves to are the
 shared filesystem's own concern (its export config, UID mapping, etc.) —

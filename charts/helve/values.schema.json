@@ -102,7 +102,7 @@
         "mode": {
           "type": "string",
           "enum": ["off", "hostPath", "pvc"],
-          "description": "off (default): no home-directory feature. hostPath: mount <hostPath.basePath>/<username> from every node's own filesystem. pvc: one PersistentVolumeClaim per user from pvc.storageClassName."
+          "description": "off (default): no home-directory feature. hostPath: mount <hostPath.basePath>/<username> from every node's own filesystem. pvc: see pvc.strategy for the two ways this mode can provide storage."
         },
         "hostPath": {
           "type": "object",
@@ -116,11 +116,20 @@
         "pvc": {
           "type": "object",
           "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": ["dynamic", "shared"],
+              "description": "dynamic (default): Helve creates one PersistentVolumeClaim per user from storageClassName/size. shared: Helve mounts existingClaimName (provisioned by you) into every user's pod with subPath: <username>, creating nothing itself."
+            },
             "storageClassName": {
               "type": "string",
-              "description": "Required when mode=pvc. Must support ReadWriteMany if a user can run more than one home-drive environment at once."
+              "description": "Required when mode=pvc and strategy=dynamic. Must support ReadWriteMany if a user can run more than one home-drive environment at once."
             },
-            "size": { "type": "string", "description": "Size of each per-user home PVC." }
+            "size": { "type": "string", "description": "Size of each per-user home PVC. Only meaningful with strategy=dynamic." },
+            "existingClaimName": {
+              "type": "string",
+              "description": "Required when mode=pvc and strategy=shared. The single, already-existing PersistentVolumeClaim every user's home directory is a subdirectory of."
+            }
           }
         }
       }

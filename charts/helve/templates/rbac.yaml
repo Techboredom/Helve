@@ -46,13 +46,16 @@ rules:
   # exists before creating the Deployment, so a typo fails fast with a
   # clear 400 instead of leaving the pod stuck Pending. Read-only by
   # default — Helve never creates or deletes a PersistentVolumeClaim for
-  # that shared-mount feature; one is always provisioned out-of-band first
-  # (see charts/helve/README.md's storage notes). `create` is added only
-  # for homeDrives.mode=pvc, which does need it — to provision each user's
-  # own home-directory claim on first use (never deleted, same as above).
+  # that shared-mount feature (or for homeDrives with strategy=shared,
+  # which reuses this same read-only `get` to confirm
+  # homeDrives.pvc.existingClaimName exists); one is always provisioned
+  # out-of-band first (see charts/helve/README.md's storage notes).
+  # `create` is added only for homeDrives.mode=pvc with strategy=dynamic,
+  # which does need it — to provision each user's own home-directory claim
+  # on first use (never deleted, same as above).
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
-    verbs: ["get", "list"{{ if eq .Values.homeDrives.mode "pvc" }}, "create"{{ end }}]
+    verbs: ["get", "list"{{ if and (eq .Values.homeDrives.mode "pvc") (eq .Values.homeDrives.pvc.strategy "dynamic") }}, "create"{{ end }}]
   # The Pods tab's manage panel: "Roll back" finds the ReplicaSet from
   # immediately before the last edit and copies its pod template back onto
   # the Deployment — the same thing `kubectl rollout undo` does, using the

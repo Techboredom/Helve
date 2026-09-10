@@ -87,15 +87,29 @@ homeDrives:
     # or CSI driver at all. Required if mode=hostPath.
     basePath: ""
   pvc:
-    # Must support ReadWriteMany if a user can ever run more than one
-    # home-drive environment at once - a ReadWriteOnce claim only ever
-    # attaches to one node at a time, and Helve doesn't check which kind
-    # this is before creating the claim. Required if mode=pvc.
+    # "dynamic" (default): Helve creates one PersistentVolumeClaim per user
+    # from storageClassName/size below, on that user's first home-drive
+    # launch, and never deletes it - not on relaunch, not on user
+    # deletion. Needs storageClassName to support dynamic provisioning.
+    #
+    # "shared": provision one PersistentVolumeClaim yourself (an RWX share,
+    # or a statically-bound PV/PVC pair - same as the existing
+    # volume_claim_name storage mount) and name it in existingClaimName.
+    # Helve mounts that single claim into every user's pod with
+    # subPath: <username> instead, so it never creates or deletes a PVC at
+    # all - needs no dynamic provisioning, but has one shared capacity pool
+    # rather than a size cap per user.
+    strategy: "dynamic"
+    # Required if strategy=dynamic. Must support ReadWriteMany if a user
+    # can ever run more than one home-drive environment at once - a
+    # ReadWriteOnce claim only ever attaches to one node at a time, and
+    # Helve doesn't check which kind this is before creating the claim.
     storageClassName: ""
-    # Size of each per-user home PVC ("home-<username>"), created on that
-    # user's first home-drive launch and never deleted by Helve — not on
-    # relaunch, not on user deletion. Required if mode=pvc.
+    # Size of each per-user home PVC. Only meaningful with strategy=dynamic.
     size: "10Gi"
+    # Required if strategy=shared. The single PVC every user's home
+    # directory is a subdirectory of.
+    existingClaimName: ""
 
 adminBootstrap:
   # A Secret (key "password") to use instead of adminBootstrap.password.

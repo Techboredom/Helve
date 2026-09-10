@@ -190,8 +190,8 @@ fn security_context_for(user: &CurrentUser) -> Option<PodSecurityContext> {
     })
 }
 
-/// Ensures a user's home-directory PVC exists (`HomeDrives::Pvc` mode
-/// only), creating it from `storage_class`/`size` on first use.
+/// Ensures a user's home-directory PVC exists (`HomeDrives::DynamicPvc`
+/// mode only), creating it from `storage_class`/`size` on first use.
 /// Deterministically named (`home-<username>`) so a relaunch — or a second
 /// environment launched later — finds the same claim already there rather
 /// than creating a new one each time.
@@ -453,26 +453,66 @@ pub async fn create_deployment(
     // that `state.home_drives` is set whenever this is, so the `expect`
     // below can't actually fire.
     if let Some(home_mount_path) = req.home_mount_path.as_deref().filter(|p| !p.is_empty()) {
-        let home_volume = match state.home_drives.as_ref().expect("checked above") {
-            HomeDrives::HostPath { base_path } => Volume {
-                name: "home".to_string(),
-                host_path: Some(HostPathVolumeSource {
-                    path: format!("{base_path}/{}", user.username),
-                    type_: Some("DirectoryOrCreate".to_string()),
-                }),
-                ..Default::default()
-            },
-            HomeDrives::Pvc { storage_class, size } => {
-                let claim_name = ensure_home_pvc(&state, &user, storage_class, size).await?;
+        // `home_sub_path` is only `Some` for `SharedPvc`: one claim shared
+        // by every user, so each gets its own subdirectory within it.
+        // `HostPath` and `DynamicPvc` are already exclusively this user's
+        // own volume, so nothing further scopes the mount.
+        let (home_volume, home_sub_path) = match state.home_drives.as_ref().expect("checked above") {
+            HomeDrives::HostPath { base_path } => (
                 Volume {
                     name: "home".to_string(),
-                    persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource { claim_name, read_only: Some(false) }),
+                    host_path: Some(HostPathVolumeSource {
+                        path: format!("{base_path}/{}", user.username),
+                        type_: Some("DirectoryOrCreate".to_string()),
+                    }),
                     ..Default::default()
-                }
+                },
+                None,
+            ),
+            HomeDrives::DynamicPvc { storage_class, size } => {
+                let claim_name = ensure_home_pvc(&state, &user, storage_class, size).await?;
+                (
+                    Volume {
+                        name: "home".to_string(),
+                        persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource { claim_name, read_only: Some(false) }),
+                        ..Default::default()
+                    },
+                    None,
+                )
+            }
+            HomeDrives::SharedPvc { claim_name } => {
+                // Confirmed to exist once, same fail-fast reasoning as the
+                // "data" volume's own claim check above — a typo'd or
+                // not-yet-provisioned HOME_DRIVES_SHARED_CLAIM fails the
+                // launch with a clear 400 rather than leaving the pod
+                // stuck Pending.
+                let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(state.client.clone(), &state.namespace);
+                pvcs.get(claim_name).await.map_err(|err| match &err {
+                    kube::Error::Api(status) if status.code == 404 => ApiError::BadRequest(format!(
+                        "HOME_DRIVES_SHARED_CLAIM names \"{claim_name}\", but no such PersistentVolumeClaim exists in this namespace"
+                    )),
+                    _ => ApiError::from(err),
+                })?;
+                (
+                    Volume {
+                        name: "home".to_string(),
+                        persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                            claim_name: claim_name.clone(),
+                            read_only: Some(false),
+                        }),
+                        ..Default::default()
+                    },
+                    Some(user.username.clone()),
+                )
             }
         };
         pod_volumes.push(home_volume);
-        pod_volume_mounts.push(VolumeMount { name: "home".to_string(), mount_path: home_mount_path.to_string(), ..Default::default() });
+        pod_volume_mounts.push(VolumeMount {
+            name: "home".to_string(),
+            mount_path: home_mount_path.to_string(),
+            sub_path: home_sub_path,
+            ..Default::default()
+        });
     }
     let volumes = (!pod_volumes.is_empty()).then_some(pod_volumes);
     let volume_mounts = (!pod_volume_mounts.is_empty()).then_some(pod_volume_mounts);

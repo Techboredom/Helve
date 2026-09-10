@@ -66,16 +66,15 @@ impl ProxyOrigin {
 
 /// How a per-user home directory gets provided to launched environments,
 /// mounted at whatever mount path a template's `home_mount_path` names.
-/// `None` (neither backend flag set) disables the feature entirely — no
-/// home volume is ever added, and a template/launch setting
-/// `home_mount_path` is rejected with 400 rather than silently ignored.
+/// `None` (no backend flag set) disables the feature entirely — no home
+/// volume is ever added, and a template/launch setting `home_mount_path`
+/// is rejected with 400 rather than silently ignored.
 ///
-/// Both variants sidestep needing ReadWriteMany storage, for the same
-/// underlying reason `HostPath` states explicitly: the only StorageClasses
-/// this project has ever run against are Ceph RBD, which is
-/// ReadWriteOnce-only for a `Filesystem`-mode PVC — two of one user's
-/// environments landing on different nodes would leave the second stuck
-/// `Pending`. `Pvc` mode requires the operator to actually point
+/// `HostPath` and `SharedPvc` both sidestep needing ReadWriteMany storage:
+/// the only StorageClasses this project has ever run against are Ceph RBD,
+/// which is ReadWriteOnce-only for a `Filesystem`-mode PVC — two of one
+/// user's environments landing on different nodes would leave the second
+/// stuck `Pending`. `DynamicPvc` requires the operator to actually point
 /// `storage_class` at something ReadWriteMany-capable (CephFS, NFS-CSI,
 /// etc.); Helve has no way to check that itself before creating the claim.
 #[derive(Clone, Debug)]
@@ -91,7 +90,17 @@ pub enum HomeDrives {
     /// by Helve, on user deletion or otherwise — same caution as every
     /// other "Helve never deletes X" rule in this codebase, so a mistake
     /// here can't be a data-loss bug.
-    Pvc { storage_class: String, size: String },
+    DynamicPvc { storage_class: String, size: String },
+    /// A single PersistentVolumeClaim, provisioned once out-of-band (the
+    /// same way the existing shared-model-cache mount already works —
+    /// Helve never creates this one), mounted into every user's pod with
+    /// `subPath: <username>`. Kubernetes creates that subdirectory on the
+    /// volume automatically the first time it's mounted if it doesn't
+    /// already exist, so this needs no per-user provisioning step at all —
+    /// just one RWX-capable (or statically-bound) share set up ahead of
+    /// time, matching this codebase's default preference for not creating
+    /// PVCs itself.
+    SharedPvc { claim_name: String },
 }
 
 /// How many failed logins from one address, within [`LOGIN_FAILURE_WINDOW`],

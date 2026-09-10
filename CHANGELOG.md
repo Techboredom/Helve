@@ -12,13 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Home directories.** A template can now set a `home_mount_path` (e.g.
   `/home/jovyan`) to give each user a persistent home directory, mounted
   independently of the existing shared-PVC storage mount. Off by default;
-  the backend chooses one of two modes:
+  the backend chooses one of three modes:
   - `hostPath` — mounts `<base path>/<username>` from a filesystem already
     shared across every node at the OS level (NFS, CephFS, a parallel
     filesystem, ...). Needs no StorageClass or CSI driver.
-  - `pvc` — Helve provisions one PersistentVolumeClaim per user from a
-    configured, `ReadWriteMany`-capable StorageClass, never deleting it
-    (matching this project's existing "never delete a PVC" caution).
+  - `pvc`, `strategy=dynamic` — Helve provisions one PersistentVolumeClaim
+    per user from a configured, `ReadWriteMany`-capable StorageClass,
+    never deleting it (matching this project's existing "never delete a
+    PVC" caution).
+  - `pvc`, `strategy=shared` — mounts one PVC you provision yourself into
+    every user's pod with `subPath: <username>`, so Helve never creates or
+    deletes a PVC at all, at the cost of one shared capacity pool rather
+    than a size cap per user.
   See `charts/helve/README.md`'s "Home directories" section.
 
 ## [0.4.1] - 2026-09-09

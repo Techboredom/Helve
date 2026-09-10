@@ -418,13 +418,17 @@ can use:
   mounts a per-user home directory into the container, independent of
   (and mountable alongside) the storage mount above. Only takes effect if
   the backend was started with a home-drive mode configured
-  (`HOME_DRIVES_HOST_BASE_PATH` or `HOME_DRIVES_STORAGE_CLASS` +
-  `HOME_DRIVES_STORAGE_SIZE`; 400 if set without either) — see
-  `charts/helve/README.md`'s "Home directories" section for the two modes
-  and their tradeoffs (`hostPath` needs no `ReadWriteMany` storage at all,
-  at the cost of every node needing the same shared filesystem already
-  mounted at the OS level; `pvc` needs a real `ReadWriteMany`-capable
-  StorageClass but provisions per-user claims Helve manages itself).
+  (`HOME_DRIVES_HOST_BASE_PATH`, `HOME_DRIVES_STORAGE_CLASS` +
+  `HOME_DRIVES_STORAGE_SIZE`, or `HOME_DRIVES_SHARED_CLAIM`; 400 if
+  `home_mount_path` is set without any of them) — see
+  `charts/helve/README.md`'s "Home directories" section for the three
+  modes and their tradeoffs: `hostPath` needs no `ReadWriteMany` storage
+  at all, at the cost of every node needing the same shared filesystem
+  already mounted at the OS level; `pvc` mode either has Helve create a
+  real PVC per user from a `ReadWriteMany`-capable StorageClass
+  (`strategy=dynamic`), or mounts one PVC you provision yourself into
+  every user's pod with `subPath: <username>` (`strategy=shared`),
+  creating nothing itself.
 - **Readiness probe path** — `readiness_path`, e.g. `/health`, attaches an
   HTTP `readinessProbe` to the container against `container_port` (400 if
   `container_port` isn't also set), with generous timing
