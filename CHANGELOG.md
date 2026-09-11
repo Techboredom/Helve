@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-09-11
+
+### Added
+
+- **The Pods tab now respects `expose_resource_requests`.** The CPU/memory
+  *request* columns used to always show regardless of the quota setting
+  that already hides request fields on the Launch tab and manage panel;
+  now they're hidden there too (not just blanked) when the setting is off.
+- **Help text on the CPU/memory request and limit fields**, on both the
+  Launch tab and the Pods tab's manage panel — what a request actually
+  reserves vs. what a limit enforces, and why CPU and memory behave
+  differently once a container crosses the limit (throttled vs.
+  OOMKilled). Adapts when requests are hidden, so it never references a
+  field that isn't even shown.
+
+### Changed
+
+- **A template's home directory mount path is no longer editable per
+  launch.** It was already an admin-set, per-template field
+  (`home_mount_path`, Templates tab), but the Launch tab also let anyone
+  override it at launch time — which let two launches of the same
+  template disagree about where files go. Now it's inherited from the
+  selected template, shown read-only, and only appears at all when the
+  template actually sets one.
+
+### Fixed
+
+- **Long unwrapped content (a template's command-line args, in
+  particular) could overflow the Launch/Templates/manage-panel forms
+  past their card entirely**, dragging the hint text below it along the
+  same way. A grid/flex item's default `min-width` is `auto`, not `0` —
+  it refuses to shrink below its content's intrinsic size, and a
+  `<textarea>` compounds that with its own character-based intrinsic
+  width independent of any CSS width set on it. Fixed at the source
+  (`min-width: 0` on the grid item, explicit `width: 100%` on the
+  textarea) rather than papered over per-field.
+
+- **Those same forms wasted a lot of space on a wide screen** — a flat
+  `640px` cap regardless of viewport. The three field-dense ones (Launch,
+  Templates, the manage panel) now scale continuously up to `960px`
+  (`clamp(640px, 85vw, 960px)`) instead of jumping at a fixed breakpoint;
+  small forms (reset password, a quota override, ...) are untouched,
+  since stretching 2-3 fields across a much wider row would just look
+  sparse.
+
 ## [0.5.2] - 2026-09-11
 
 ### Added
@@ -445,7 +490,8 @@ own cluster.
   section still listed it as missing, contradicting the security-notes
   section describing the throttle).
 
-[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/Techboredom/Helve/releases/tag/v0.5.3
 [0.5.2]: https://github.com/Techboredom/Helve/releases/tag/v0.5.2
 [0.5.1]: https://github.com/Techboredom/Helve/releases/tag/v0.5.1
 [0.5.0]: https://github.com/Techboredom/Helve/releases/tag/v0.5.0

@@ -279,7 +279,7 @@ pub fn TemplatesTab() -> impl IntoView {
                 {move || if editing_id.get().is_some() { "Edit template" } else { "New template" }}
             </h3>
 
-            <form class="deploy-form" on:submit=on_submit>
+            <form class="deploy-form deploy-form-wide" on:submit=on_submit>
                 <label>
                     "Name"
                     <input

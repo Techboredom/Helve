@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use common::PodInfo;
+use common::{MyQuota, PodInfo};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -15,6 +15,12 @@ pub fn PodsTab(is_admin: bool) -> impl IntoView {
     let connected = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
     let selected_pod: RwSignal<Option<String>> = RwSignal::new(None);
+    let my_quota: RwSignal<Option<MyQuota>> = RwSignal::new(None);
+    // Same setting the Launch tab and manage panel already key off —
+    // whether resource *requests* (as opposed to limits) are shown at all.
+    // Defaults to showing them until the real setting loads, matching
+    // those two.
+    let expose_requests = move || my_quota.get().map(|q| q.expose_resource_requests).unwrap_or(true);
 
     spawn_local(async move {
         match api::get_json::<Vec<PodInfo>>("/api/pods").await {
@@ -26,6 +32,12 @@ pub fn PodsTab(is_admin: bool) -> impl IntoView {
             Err(err) => error.set(Some(format!("failed to load pods: {err}"))),
         }
         ws::run(pods, connected, error).await;
+    });
+
+    spawn_local(async move {
+        if let Ok(quota) = api::get_json::<MyQuota>("/api/quota/me").await {
+            my_quota.set(Some(quota));
+        }
     });
 
     let rows = Memo::new(move |_| {
@@ -95,9 +107,9 @@ pub fn PodsTab(is_admin: bool) -> impl IntoView {
                             <th>"Node"</th>
                             <th>"Restarts"</th>
                             <th>"Age"</th>
-                            <th>"CPU request"</th>
+                            <th class:hidden=move || !expose_requests()>"CPU request"</th>
                             <th>"CPU limit"</th>
-                            <th>"Memory request"</th>
+                            <th class:hidden=move || !expose_requests()>"Memory request"</th>
                             <th>"Memory limit"</th>
                             <th>"Accelerators"</th>
                             <th>"Credential"</th>
@@ -105,7 +117,7 @@ pub fn PodsTab(is_admin: bool) -> impl IntoView {
                     </thead>
                     <tbody>
                         <For each=move || rows.get() key=|pod| pod.name.clone() let(pod)>
-                            <PodRow pod=pod selected_pod=selected_pod is_admin=is_admin />
+                            <PodRow pod=pod selected_pod=selected_pod is_admin=is_admin my_quota=my_quota />
                         </For>
                     </tbody>
                 </table>
@@ -125,7 +137,8 @@ pub fn PodsTab(is_admin: bool) -> impl IntoView {
 }
 
 #[component]
-fn PodRow(pod: PodInfo, selected_pod: RwSignal<Option<String>>, is_admin: bool) -> impl IntoView {
+fn PodRow(pod: PodInfo, selected_pod: RwSignal<Option<String>>, is_admin: bool, my_quota: RwSignal<Option<MyQuota>>) -> impl IntoView {
+    let expose_requests = move || my_quota.get().map(|q| q.expose_resource_requests).unwrap_or(true);
     let ready = format!("{}/{}", pod.ready_containers, pod.total_containers);
     let accelerators = format::accelerators(&pod.accelerators);
     let badge_class = format!("badge {}", format::phase_class(&pod.phase));
@@ -206,9 +219,9 @@ fn PodRow(pod: PodInfo, selected_pod: RwSignal<Option<String>>, is_admin: bool) 
             <td>{pod.node.clone().unwrap_or_else(|| "—".into())}</td>
             <td>{pod.restarts}</td>
             <td>{format::age(pod.start_time.as_deref())}</td>
-            <td>{format::millicores(pod.cpu_request_millicores)}</td>
+            <td class:hidden=move || !expose_requests()>{format::millicores(pod.cpu_request_millicores)}</td>
             <td>{format::millicores(pod.cpu_limit_millicores)}</td>
-            <td>{format::bytes(pod.memory_request_bytes)}</td>
+            <td class:hidden=move || !expose_requests()>{format::bytes(pod.memory_request_bytes)}</td>
             <td>{format::bytes(pod.memory_limit_bytes)}</td>
             <td>{accelerators}</td>
             <td>

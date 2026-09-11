@@ -242,7 +242,7 @@ pub fn ManageDeploymentSection(deployment_name: String, selected: RwSignal<Optio
 
                 view! {
                     <div>
-                        <form class="deploy-form" on:submit=on_submit>
+                        <form class="deploy-form deploy-form-wide" on:submit=on_submit>
                             <label>
                                 "Replicas"
                                 <input
@@ -269,6 +269,15 @@ pub fn ManageDeploymentSection(deployment_name: String, selected: RwSignal<Optio
 
                             <fieldset>
                                 <legend>"CPU"</legend>
+                                <div class="hint">
+                                    {move || {
+                                        if expose_requests() {
+                                            "Request is what's reserved for scheduling — the container can still burst above it whenever the node has spare capacity. Limit is a hard ceiling: CPU use is throttled past it, never killed, since CPU (unlike memory) can be handed out in slices."
+                                        } else {
+                                            "Limit is a hard ceiling: CPU use is throttled past it, never killed, since CPU (unlike memory) can be handed out in slices."
+                                        }
+                                    }}
+                                </div>
                                 <Show when=expose_requests>
                                     <label>
                                         "Request"
@@ -293,6 +302,15 @@ pub fn ManageDeploymentSection(deployment_name: String, selected: RwSignal<Optio
 
                             <fieldset>
                                 <legend>"Memory"</legend>
+                                <div class="hint">
+                                    {move || {
+                                        if expose_requests() {
+                                            "Request is what's reserved for scheduling. Limit is a hard ceiling too, but unlike CPU it can't be throttled — a container that exceeds it gets OOMKilled and restarted, not slowed down."
+                                        } else {
+                                            "Limit is a hard ceiling — unlike CPU it can't be throttled, so a container that exceeds it gets OOMKilled and restarted rather than slowed down."
+                                        }
+                                    }}
+                                </div>
                                 <Show when=expose_requests>
                                     <label>
                                         "Request"

@@ -660,6 +660,21 @@ tbody tr:hover {
   padding: var(--space-5);
 }
 
+/* Opt-in widening for the handful of forms with enough fields that a fixed
+   640px cap leaves a lot of a wide screen empty (Launch, Templates, the
+   Pods tab's manage panel) — small forms (reset password, node label, a
+   quota override, ...) stay at .deploy-form's own 640px, where stretching
+   two or three fields across a much wider row would just look sparse.
+   clamp() rather than a fixed width or a media-query breakpoint: it scales
+   continuously with the viewport instead of jumping at one fixed size, and
+   the auto-fit grid above already reflows into more columns on its own as
+   this container gets wider — this just gives it more room to do that in.
+   Floor matches .deploy-form's own 640px, so nothing changes below that;
+   ceiling stays comfortably inside <main>'s own 1200px content width. */
+.deploy-form-wide {
+  max-width: clamp(640px, 85vw, 960px);
+}
+
 .deploy-form fieldset,
 .deploy-form > button {
   grid-column: 1 / -1;
@@ -671,6 +686,14 @@ tbody tr:hover {
   gap: 6px;
   font-size: 13px;
   color: var(--text-secondary);
+  /* A grid/flex item's default min-width is auto, not 0 — it refuses to
+     shrink below its content's intrinsic size. A <textarea> in particular
+     has its own character-based intrinsic width independent of any CSS
+     width set on it, so without this a long unwrapped line (a template's
+     command-line args, say) blows this label's grid track out past its
+     column and overflows the card entirely, dragging the hint text below
+     it along the same way. */
+  min-width: 0;
 }
 
 .deploy-form fieldset {
@@ -798,6 +821,10 @@ tbody tr:hover {
   resize: vertical;
   font-family: var(--helve-mono);
   font-size: 13px;
+  /* Textareas size by their `cols` attribute (an intrinsic character
+     count) independent of any grid/flex layout around them unless told
+     otherwise — this is the other half of the min-width: 0 fix above. */
+  width: 100%;
 }
 
 .deploy-form input:hover,

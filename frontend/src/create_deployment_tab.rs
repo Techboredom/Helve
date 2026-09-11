@@ -245,7 +245,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
             <ErrorBanner error=images_error />
             <ErrorBanner error=templates_error />
 
-            <form class="deploy-form" on:submit=on_submit>
+            <form class="deploy-form deploy-form-wide" on:submit=on_submit>
                 <label>
                     "Template"
                     <select prop:value=move || selected_template_id.get() on:change=on_template_change>
@@ -357,6 +357,15 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
 
                 <fieldset>
                     <legend>"CPU"</legend>
+                    <div class="hint">
+                        {move || {
+                            if expose_requests() {
+                                "Request is what's reserved for scheduling — the container can still burst above it whenever the node has spare capacity. Limit is a hard ceiling: CPU use is throttled past it, never killed, since CPU (unlike memory) can be handed out in slices."
+                            } else {
+                                "Limit is a hard ceiling: CPU use is throttled past it, never killed, since CPU (unlike memory) can be handed out in slices."
+                            }
+                        }}
+                    </div>
                     <Show when=expose_requests>
                         <label>
                             "Request"
@@ -381,6 +390,15 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
 
                 <fieldset>
                     <legend>"Memory"</legend>
+                    <div class="hint">
+                        {move || {
+                            if expose_requests() {
+                                "Request is what's reserved for scheduling. Limit is a hard ceiling too, but unlike CPU it can't be throttled — a container that exceeds it gets OOMKilled and restarted, not slowed down."
+                            } else {
+                                "Limit is a hard ceiling — unlike CPU it can't be throttled, so a container that exceeds it gets OOMKilled and restarted rather than slowed down."
+                            }
+                        }}
+                    </div>
                     <Show when=expose_requests>
                         <label>
                             "Request"
@@ -557,19 +575,22 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
                     </label>
                 </fieldset>
 
-                <label>
-                    "Home directory mount path (optional)"
-                    <input
-                        type="text"
-                        maxlength="512"
-                        placeholder="e.g. /home/jovyan"
-                        prop:value=move || home_mount_path.get()
-                        on:input=move |ev| home_mount_path.set(event_target_value(&ev))
-                    />
-                    <div class="hint">
-                        "Only takes effect if this deployment of Helve has a home-drive mode configured."
-                    </div>
-                </label>
+                // Read-only, inherited from the selected template — not a
+                // launch-time choice. Where a user's files land has to be
+                // consistent every time they launch this template, and
+                // picking it per-launch would let it drift or collide with
+                // whatever an admin already set up for that mount path.
+                // Nothing to show at all for a template (or Custom) with no
+                // home_mount_path configured.
+                <Show when=move || !home_mount_path.get().is_empty()>
+                    <label>
+                        "Home directory mount path"
+                        <input type="text" disabled=true prop:value=move || home_mount_path.get() />
+                        <div class="hint">
+                            "Set by the selected template, not editable per launch — change it from the Templates admin tab."
+                        </div>
+                    </label>
+                </Show>
 
                 <label>
                     "Command arguments (optional, one per line)"
