@@ -51,37 +51,37 @@ jobs:
               cd frontend && cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
             '
 
-  # amd64 and arm64 build in parallel rather than one job doing
-  # `--platform linux/amd64,linux/arm64` sequentially. This runner is a
-  # single physical amd64 host either way - there's no second, native
-  # arm64 machine the way the public release pipeline has (two different
-  # GitHub-hosted runners, one per arch) - so arm64 here is QEMU-emulated
-  # regardless of how the jobs are structured. What parallelizing actually
-  # buys: the fast, native amd64 leg no longer waits behind the slow,
-  # emulated arm64 leg (or vice versa) inside one combined buildx
-  # invocation that can't report either platform done until both are.
+  # amd64 then arm64, sequentially in one job - not two parallel jobs.
+  # They used to be parallel (the point being: the fast, native amd64 leg
+  # doesn't wait behind the slow, QEMU-emulated arm64 leg), which needed
+  # runner.capacity bumped from 1 to 2 to actually run concurrently rather
+  # than just queueing. That concurrency is exactly what broke it: `docker
+  # buildx create`/`rm`/`--use` mutate shared, non-atomic state under
+  # ~/.docker/buildx/, and two of those jobs hitting it at the same
+  # wall-clock moment on the same host (same $HOME either way, arch-
+  # suffixed $WORKDIR notwithstanding) raced. Three different files came
+  # up "missing right after being created" across three separate runs,
+  # each in a different specific place - not three unrelated bugs, one
+  # shared-state race showing up wherever the timing happened to land
+  # that time. Sequential means only one of these two is ever touching
+  # that state at once, on this one physical runner, regardless of
+  # runner.capacity.
   #
-  # That benefit is real only if this runner can execute two jobs at
-  # once - its act_runner config.yaml sets `runner.capacity`, and it was
-  # 1 (see Forgejo-Runner-Ansible's templates/config.yaml.j2) until this
-  # change shipped alongside a bump to 2. Below that, these still queue
-  # sequentially - same total wall-clock as before, just split into two
-  # job names instead of one.
-  #
-  # Pattern (parallel per-arch builds, pushed by digest, merged into one
-  # manifest list afterward) mirrors .github/workflows/release.yml's
-  # already-proven approach, adapted to plain CLI calls instead of that
-  # workflow's docker/*-action steps - those marketplace actions haven't
-  # been verified against this specific host-mode runner, and the plain
-  # `docker login`/buildx CLI path already has, repeatedly, tonight.
-  build-amd64:
+  # Pattern (per-arch builds pushed by digest, merged into one manifest
+  # list afterward) mirrors .github/workflows/release.yml's already-proven
+  # approach, adapted to plain CLI calls instead of that workflow's
+  # docker/*-action steps - those marketplace actions haven't been
+  # verified against this specific host-mode runner, and the plain
+  # `docker login`/buildx CLI path already has, repeatedly.
+  build:
     needs: check
     runs-on: docker
     env:
       REGISTRY: ${{ vars.REGISTRY }}
       IMAGE: ${{ vars.IMAGE }}
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      amd64_digest: ${{ steps.build-amd64.outputs.digest }}
+      arm64_digest: ${{ steps.build-arm64.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -91,25 +91,20 @@ jobs:
       - name: Log in to registry
         run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "$REGISTRY" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
 
-      # Setup and build used to be two separate steps, with the build step
-      # relying on setup-buildx.sh's own workdir (/tmp/helve-buildx-amd64,
-      # holding buildkitd.toml and the CA cert it configures) still being
-      # there afterward. It wasn't reliable: a first failure showed the
-      # metadata-file's parent directory missing at build time even though
-      # setup-buildx.sh had just created it moments earlier, and after
-      # papering over that with a defensive mkdir, the *next* run showed
-      # buildkitd.toml itself missing the same way — this runner does not
-      # reliably carry /tmp state from one step to the next, regardless of
-      # which specific file trips over it. One step removes the boundary
-      # entirely: everything setup-buildx.sh writes is guaranteed visible
-      # to the rest of this same shell script, no cross-step assumption
-      # left to be wrong about.
+      # Setup and build are one step, not two: an earlier version split
+      # them, and the build step relied on setup-buildx.sh's own workdir
+      # (holding buildkitd.toml and the CA cert it configures) still being
+      # there afterward - unreliable even before the concurrency issue
+      # above, for reasons this comment doesn't need to re-litigate now
+      # that both are fixed together. One step removes the cross-step
+      # assumption entirely: everything setup-buildx.sh writes is
+      # guaranteed visible to the rest of this same shell script.
       #
       # Pushed by digest, not a tag: the tag only gets assigned once, to
       # the merged multi-arch manifest list in the merge job below, so an
       # amd64-only image is never briefly visible under a real tag.
-      - name: Set up buildx and build/push by digest
-        id: build
+      - name: amd64 - set up buildx and build/push by digest
+        id: build-amd64
         run: |
           bash .forgejo/scripts/setup-buildx.sh amd64
           docker buildx build \
@@ -120,35 +115,14 @@ jobs:
           DIGEST="$(python3 -c "import json; print(json.load(open('/tmp/helve-buildx-amd64/metadata.json'))['containerimage.digest'])")"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Log out
-        if: always()
-        run: docker logout "$REGISTRY"
-
-      - name: Clean up this job's build artifacts
+      - name: Clean up amd64 build artifacts
         if: always()
         run: rm -rf /tmp/helve-buildx-amd64
 
-  # Identical structure to build-amd64 above, arch swapped throughout.
-  build-arm64:
-    needs: check
-    runs-on: docker
-    env:
-      REGISTRY: ${{ vars.REGISTRY }}
-      IMAGE: ${{ vars.IMAGE }}
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Log in to registry
-        run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "$REGISTRY" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
-
-      # See build-amd64's identical step for why this is one step, not two.
-      - name: Set up buildx and build/push by digest
-        id: build
+      # Deliberately after amd64, not parallel to it - see this job's own
+      # comment above. Same structure as the amd64 step, arch swapped.
+      - name: arm64 - set up buildx and build/push by digest
+        id: build-arm64
         run: |
           bash .forgejo/scripts/setup-buildx.sh arm64
           docker buildx build \
@@ -159,16 +133,16 @@ jobs:
           DIGEST="$(python3 -c "import json; print(json.load(open('/tmp/helve-buildx-arm64/metadata.json'))['containerimage.digest'])")"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
+      - name: Clean up arm64 build artifacts
+        if: always()
+        run: rm -rf /tmp/helve-buildx-arm64
+
       - name: Log out
         if: always()
         run: docker logout "$REGISTRY"
 
-      - name: Clean up this job's build artifacts
-        if: always()
-        run: rm -rf /tmp/helve-buildx-arm64
-
   merge:
-    needs: [build-amd64, build-arm64]
+    needs: build
     runs-on: docker
     env:
       REGISTRY: ${{ vars.REGISTRY }}
@@ -217,8 +191,8 @@ jobs:
           fi
 
           docker buildx imagetools create "${TAG_ARGS[@]}" \
-            "$IMAGE@${{ needs.build-amd64.outputs.digest }}" \
-            "$IMAGE@${{ needs.build-arm64.outputs.digest }}"
+            "$IMAGE@${{ needs.build.outputs.amd64_digest }}" \
+            "$IMAGE@${{ needs.build.outputs.arm64_digest }}"
 
       - name: Log out
         if: always()
