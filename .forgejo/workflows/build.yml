@@ -91,23 +91,27 @@ jobs:
       - name: Log in to registry
         run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "$REGISTRY" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
 
-      - name: Set up QEMU + CA-trusted buildx
-        run: bash .forgejo/scripts/setup-buildx.sh amd64
-
+      # Setup and build used to be two separate steps, with the build step
+      # relying on setup-buildx.sh's own workdir (/tmp/helve-buildx-amd64,
+      # holding buildkitd.toml and the CA cert it configures) still being
+      # there afterward. It wasn't reliable: a first failure showed the
+      # metadata-file's parent directory missing at build time even though
+      # setup-buildx.sh had just created it moments earlier, and after
+      # papering over that with a defensive mkdir, the *next* run showed
+      # buildkitd.toml itself missing the same way — this runner does not
+      # reliably carry /tmp state from one step to the next, regardless of
+      # which specific file trips over it. One step removes the boundary
+      # entirely: everything setup-buildx.sh writes is guaranteed visible
+      # to the rest of this same shell script, no cross-step assumption
+      # left to be wrong about.
+      #
       # Pushed by digest, not a tag: the tag only gets assigned once, to
       # the merged multi-arch manifest list in the merge job below, so an
       # amd64-only image is never briefly visible under a real tag.
-      - name: Build and push by digest
+      - name: Set up buildx and build/push by digest
         id: build
         run: |
-          # buildx writes --metadata-file as a discrete step after the
-          # build+push itself completes, and (unlike --output paths) does
-          # not create missing parent directories for it — an otherwise
-          # fully successful build was failing right at the finish line
-          # ("invalid output path: stat ...: no such file or directory"),
-          # after the image was already pushed by digest but before that
-          # digest could ever reach $GITHUB_OUTPUT for the merge job below.
-          mkdir -p /tmp/helve-buildx-amd64
+          bash .forgejo/scripts/setup-buildx.sh amd64
           docker buildx build \
             --platform linux/amd64 \
             --metadata-file /tmp/helve-buildx-amd64/metadata.json \
@@ -142,15 +146,11 @@ jobs:
       - name: Log in to registry
         run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "$REGISTRY" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
 
-      - name: Set up QEMU + CA-trusted buildx
-        run: bash .forgejo/scripts/setup-buildx.sh arm64
-
-      - name: Build and push by digest
+      # See build-amd64's identical step for why this is one step, not two.
+      - name: Set up buildx and build/push by digest
         id: build
         run: |
-          # See build-amd64's identical step: --metadata-file needs its
-          # parent directory to already exist.
-          mkdir -p /tmp/helve-buildx-arm64
+          bash .forgejo/scripts/setup-buildx.sh arm64
           docker buildx build \
             --platform linux/arm64 \
             --metadata-file /tmp/helve-buildx-arm64/metadata.json \
