@@ -5,14 +5,16 @@ namespace — launch JupyterLab/RStudio environments or LLM inference engines
 (Ollama, vLLM, SGLang) with a few clicks, behind a login.
 
 It's a scoped-down slice of the broader platform described in `SPEC.md`,
-built to what's actually buildable today: this cluster has no ingress
-controller, so there's no Gateway layer, and a StorageClass is only just
-being added (see "Status & known limitations" below) — Helve's own
-Postgres is wired up to use it (CloudNativePG, see "Deploying to
-Kubernetes" below) but isn't live yet.
+covering "deploy a single-namespace workload from a template, behind a
+login" — `SPEC.md`'s multi-tenancy, HPA, and ArgoCD/GitOps roadmap items
+are still unaddressed. Everything it does need — an ingress controller,
+TLS, a StorageClass for persistent storage — is a real requirement of the
+Helm chart (see "Deploying to Kubernetes" below), not a placeholder for
+something missing.
 
 There are two account roles: **admin** and **user**. Both can use Pods and
-Launch; only admins see Templates and Users.
+Launch; only admins see Templates, Images, Users, Groups, Quotas, and API
+Tokens.
 
 - **Pods** — shows the running pods live, with their basic resource info:
   CPU/memory requests and limits, accelerators (GPUs, etc.), status, node,
@@ -65,10 +67,24 @@ Launch; only admins see Templates and Users.
   new one (same fields as a template pre-fills into Launch, plus notes shown
   when it's selected there, plus an optional "auto-generate a secret for
   this env var" field and a "proxy through Helve" checkbox — see below).
+- **Images** *(admin only)* — CRUD for the container-image catalog Custom
+  launches and template authoring pick from — see "Image and template
+  catalogs" below.
 - **Users** *(admin only)* — create accounts (username, password, role),
-  delete them, and reset any account's password without knowing the old one
-  (forces that account to log in again everywhere, on every device). Still
-  no self-service signup — an admin creates every account.
+  delete them, reset any account's password without knowing the old one
+  (forces that account to log in again everywhere, on every device), and set
+  per-user node placement, UID/GID, and supplemental-group assignment. Local
+  accounts are always created by hand here; LDAP/AD and OIDC (SSO) logins can
+  also provision accounts automatically — see "SSO (OIDC) and LDAP/AD
+  authentication" below.
+- **Groups** *(admin only)* — an admin-managed registry of named GIDs,
+  assigned to users from the Users tab as supplemental groups — see
+  "Per-user UID/GID" below.
+- **Quotas** *(admin only)* — the cluster-wide default CPU/memory/GPU limit
+  and per-user overrides, plus live usage — see "User quotas" below.
+- **API Tokens** *(admin only)* — mint/revoke long-lived bearer tokens for
+  scripting against the API without a browser session — see "Admin API
+  tokens" below.
 - **Activity** — login history (when, from what IP/browser) and launch
   history (what template/image/resources someone launched), kept for
   support/metrics. Same visibility split as Pods: a `user` account sees only
@@ -135,6 +151,8 @@ backend/                   Axum server, kube-rs watcher, sqlx/Postgres catalogs 
 backend/migrations/        sqlx migrations, auto-run on startup
 backend/src/auth.rs        Password hashing, session cookie, CurrentUser/AdminUser extractors, login/logout/me
 backend/src/users.rs       Users admin CRUD (admin-only)
+backend/src/ldap.rs        LDAP/AD login (search-then-bind), tried by auth::login as a fallback
+backend/src/oidc.rs        OIDC (SSO) login: discovery, PKCE/state/nonce, callback, account provisioning/linking
 backend/src/validate.rs    Input validation (k8s names, ports, quantities, env keys, ...)
 backend/src/visibility.rs  Per-user pod filtering + credential/proxy-path enrichment (admin sees all, user sees own)
 backend/src/proxy.rs       Reverse proxy for proxy-enabled templates (JupyterLab) — ClusterIP connection + credential injection
@@ -1459,13 +1477,17 @@ matter for what you do next:
   `helve.io/owner` label) doesn't count against anyone's usage and can't
   be blocked by this mechanism at all — quotas only govern what's launched
   through Helve itself.
-- **This is a scoped-down slice of `SPEC.md`, not the whole thing.** No
-  ingress controller and no StorageClass exist in this cluster yet, so
-  there's no Gateway layer and no persistent storage — launched apps
-  (including the LLM engines) lose all state on pod restart. `SPEC.md`'s
-  multi-tenancy, HPA, and ArgoCD/GitOps roadmap items are entirely
-  unaddressed; this only covers "deploy a single-namespace workload from a
-  template."
+- **This is a scoped-down slice of `SPEC.md`, not the whole thing.**
+  `SPEC.md`'s multi-tenancy, HPA, and ArgoCD/GitOps roadmap items are
+  entirely unaddressed; this only covers "deploy a single-namespace
+  workload from a template." A launched app has no persistent storage by
+  default and loses its state on pod restart, unless its template sets a
+  `volume_claim_name` (a shared PVC provisioned out-of-band, see "Image
+  and template catalogs" above) or a `home_mount_path` (a per-user home
+  directory, see `charts/helve/README.md`'s "Home directories" section);
+  Helve itself creates no Gateway/Ingress route for a launched workload at
+  all, only an optional `LoadBalancer`/`ClusterIP` Service or its own
+  reverse proxy.
 - **vLLM/SGLang templates haven't been launched for real** — verified via
   a lightweight substitute (nginx/busybox) exercising the same code path
   (port/env/args/Service), not by actually pulling and running the
