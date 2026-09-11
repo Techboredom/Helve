@@ -172,6 +172,13 @@
         }
       }
     },
+    "caBundle": {
+      "type": "object",
+      "properties": {
+        "configMapName": { "type": "string", "description": "Existing ConfigMap to mount and trust for the backend's own outbound HTTPS calls (OIDC discovery/token exchange). Empty (default): none. A cert-manager trust-manager Bundle output is a natural fit." },
+        "configMapKey": { "type": "string", "description": "Key within configMapName holding a PEM CA bundle." }
+      }
+    },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "affinity": { "type": "object" },

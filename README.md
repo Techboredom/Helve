@@ -264,6 +264,7 @@ All flags can also be set as environment variables:
 | `--oidc-groups-claim` / `OIDC_GROUPS_CLAIM` | `groups` | ID token claim carrying group membership, read as a JSON array of strings |
 | `--oidc-admin-group` / `OIDC_ADMIN_GROUP` | *(none)* | Value in `--oidc-groups-claim` that maps to the admin role, re-checked every login |
 | `--oidc-auto-provision` / `OIDC_AUTO_PROVISION` | `true` | Whether a first-time SSO login with no linked account creates one automatically |
+| `--extra-root-ca-file` / `EXTRA_ROOT_CA_FILE` | *(none)* | PEM file of extra CA certificates to trust for this app's own outbound HTTPS calls (currently only OIDC discovery/token exchange) — needed when `OIDC_ISSUER_URL` points at a server whose certificate is signed by a private/internal CA. Purely additive; see "SSO (OIDC) and LDAP/AD authentication" below |
 
 ### Endpoints
 
@@ -1025,6 +1026,25 @@ See `charts/helve/values.yaml`'s `ldap`/`oidc` blocks for the Helm-level
 knobs — `LDAP_BIND_PASSWORD`/`OIDC_CLIENT_SECRET` are Secret references
 (`existingSecret`/`existingSecretKey`), never inlined in `values.yaml`,
 the same shape as `database.existingSecret`.
+
+**An OIDC provider behind a private/internal CA** needs one more thing:
+this app's HTTP client resolves to `rustls` + a fixed, compiled-in list
+of public CAs (`webpki-roots`), not the OS trust store — it has no way to
+validate a certificate signed by a CA it doesn't already know about, and
+doesn't read `SSL_CERT_FILE`/`SSL_CERT_DIR` at runtime the way an
+OpenSSL-based client would. Without `EXTRA_ROOT_CA_FILE` set, OIDC
+discovery against such a server fails outright at startup with an
+`UnknownIssuer` TLS error rather than a vague hang or a runtime 500.
+`EXTRA_ROOT_CA_FILE` (or the chart's `caBundle.configMapName`/
+`caBundle.configMapKey`, which mounts an existing ConfigMap and points
+this env var at it) names a PEM file — one certificate or a whole bundle —
+of extra CAs to trust for the backend's own outbound HTTPS calls (today,
+only OIDC discovery/token exchange). Purely additive: setting it can
+never make a previously-working public issuer stop validating. A
+[cert-manager `trust-manager`](https://github.com/cert-manager/trust-manager)
+`Bundle` resource (`useDefaultCAs: true`) is a natural source for that
+ConfigMap, since its output is already a complete drop-in CA file rather
+than just the one custom certificate.
 
 ## Admin API tokens
 

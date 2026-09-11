@@ -209,6 +209,19 @@ struct Args {
     /// first login, then linked by subject from then on).
     #[arg(long, env = "OIDC_AUTO_PROVISION", default_value_t = true)]
     oidc_auto_provision: bool,
+
+    /// PEM file of extra CA certificates to trust for this app's own
+    /// outbound HTTPS connections — today that's only OIDC discovery and
+    /// token exchange. Needed when `OIDC_ISSUER_URL` points at a server
+    /// whose certificate is signed by a private/internal CA: this app's
+    /// HTTP client resolves to a fixed, compiled-in list of public CAs
+    /// rather than the OS trust store, so a private CA is otherwise never
+    /// trusted no matter how the host/container itself is configured. Can
+    /// hold more than one certificate (a full bundle, e.g. one produced by
+    /// cert-manager's trust-manager project) — every certificate in the
+    /// file is trusted, not just the first.
+    #[arg(long, env = "EXTRA_ROOT_CA_FILE")]
+    extra_root_ca_file: Option<String>,
 }
 
 #[tokio::main]
@@ -354,7 +367,12 @@ async fn main() -> anyhow::Result<()> {
             // Guaranteed Some by clap's `requires = "app_origin"` on --oidc-issuer-url.
             let app_origin = app_origin.clone().expect("clap requires APP_ORIGIN alongside OIDC_ISSUER_URL");
             tracing::info!(issuer = %config.issuer_url, "discovering OIDC provider metadata");
-            let discovered = oidc::Oidc::discover(config, format!("{app_origin}/api/auth/oidc/callback")).await?;
+            let discovered = oidc::Oidc::discover(
+                config,
+                format!("{app_origin}/api/auth/oidc/callback"),
+                args.extra_root_ca_file.as_deref(),
+            )
+            .await?;
             tracing::info!("OIDC (SSO) login enabled");
             Some(std::sync::Arc::new(discovered))
         }

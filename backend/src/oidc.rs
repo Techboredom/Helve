@@ -13,6 +13,7 @@
 
 use std::net::SocketAddr;
 
+use anyhow::Context;
 use axum::extract::{ConnectInfo, Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Redirect, Response};
@@ -52,13 +53,30 @@ pub struct Oidc {
 }
 
 impl Oidc {
-    pub async fn discover(config: OidcConfig, redirect_url: String) -> anyhow::Result<Self> {
-        let http = reqwest::ClientBuilder::new()
+    /// `extra_root_ca_file`, if set, names a PEM file of extra CA
+    /// certificates to trust for this client's own requests (see
+    /// `EXTRA_ROOT_CA_FILE` in `main.rs`) — the one thing this codebase's
+    /// otherwise-uniform rustls/webpki-roots setup can't cover, since
+    /// that's a fixed, compiled-in list of public CAs, not the OS trust
+    /// store. Needed for an issuer whose certificate is signed by a
+    /// private/internal CA. Purely additive: the public roots stay
+    /// trusted either way, so this can never make a previously-working
+    /// public issuer stop validating.
+    pub async fn discover(config: OidcConfig, redirect_url: String, extra_root_ca_file: Option<&str>) -> anyhow::Result<Self> {
+        let mut builder = reqwest::ClientBuilder::new()
             // Discovery/token/JWKS requests only ever go to the configured
             // issuer's own endpoints. Refusing to follow a redirect is
             // openidconnect's own documented SSRF hardening for this client.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+            .redirect(reqwest::redirect::Policy::none());
+        if let Some(path) = extra_root_ca_file {
+            let pem = std::fs::read(path).with_context(|| format!("failed to read EXTRA_ROOT_CA_FILE {path}"))?;
+            let certs = reqwest::Certificate::from_pem_bundle(&pem)
+                .with_context(|| format!("failed to parse EXTRA_ROOT_CA_FILE {path} as one or more PEM certificates"))?;
+            for cert in certs {
+                builder = builder.add_root_certificate(cert);
+            }
+        }
+        let http = builder.build()?;
         let provider_metadata = CoreProviderMetadata::discover_async(IssuerUrl::new(config.issuer_url.clone())?, &http).await?;
         let client_id = ClientId::new(config.client_id.clone());
         let client_secret = ClientSecret::new(config.client_secret.clone());

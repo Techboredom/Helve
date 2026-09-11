@@ -162,11 +162,21 @@ spec:
             - name: OIDC_AUTO_PROVISION
               value: {{ .Values.oidc.autoProvision | quote }}
             {{- end }}
+            {{- if .Values.caBundle.configMapName }}
+            - name: EXTRA_ROOT_CA_FILE
+              value: /etc/helve/ca-bundle/{{ .Values.caBundle.configMapKey }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.caBundle.configMapName }}
+          volumeMounts:
+            - name: ca-bundle
+              mountPath: /etc/helve/ca-bundle
+              readOnly: true
+          {{- end }}
           # /api/pods used to back both probes, but it requires a session and
           # so answers the kubelet with 401 — which Kubernetes counts as a
           # failure, since only 200-399 pass. Readiness would never have
@@ -197,3 +207,9 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+      {{- if .Values.caBundle.configMapName }}
+      volumes:
+        - name: ca-bundle
+          configMap:
+            name: {{ .Values.caBundle.configMapName }}
+      {{- end }}

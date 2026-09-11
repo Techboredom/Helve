@@ -167,6 +167,19 @@ adminBootstrap:
   # exists. See NOTES.txt for retrieving and clearing it after first login.
   password: ""
 
+caBundle:
+  # Mounts an existing ConfigMap into the pod and points the backend at a
+  # key in it, so its own outbound HTTPS calls (OIDC discovery/token
+  # exchange — the only ones it makes today) can validate a certificate
+  # signed by a private/internal CA, which isn't in the public root list
+  # rustls ships with by default. Empty (default): no extra CA trusted,
+  # same as today. A ConfigMap produced by cert-manager's trust-manager
+  # project (a "Bundle" resource with useDefaultCAs: true) is a natural
+  # fit here — its output is already a complete drop-in CA file, which is
+  # exactly the shape this expects.
+  configMapName: ""
+  configMapKey: ca-certificates.crt
+
 # Empty by default — deliberately. A cluster-specific nodeSelector (e.g.
 # a custom node label from the original deployment this chart was ported
 # from) baked in here is exactly what would leave a pod Pending with no

@@ -145,6 +145,8 @@ and their required credentials.
 | `oidc.groupsClaim` | `groups` | ID token claim carrying group membership, read as a JSON array of strings. |
 | `oidc.adminGroup` | `""` | A value in `groupsClaim` that maps to the admin role, re-checked every login. Empty = no group mapping. |
 | `oidc.autoProvision` | `true` | Whether a first-time SSO login with no linked account creates one automatically. See the main README's SSO section for the pre-created-account linking this enables when `false`. |
+| `caBundle.configMapName` | `""` | Existing ConfigMap to mount and trust for the backend's own outbound HTTPS calls (OIDC discovery/token exchange) — needed when `oidc.issuerUrl` is signed by a private/internal CA. Empty (default): none. A [cert-manager `trust-manager`](https://github.com/cert-manager/trust-manager) `Bundle` output is a natural fit. |
+| `caBundle.configMapKey` | `ca-certificates.crt` | Key within `caBundle.configMapName` holding a PEM CA bundle. |
 | `nodeSelector` | `{}` | |
 | `tolerations` | `[]` | |
 | `affinity` | `{}` | |

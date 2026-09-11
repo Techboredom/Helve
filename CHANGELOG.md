@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.5.1] - 2026-09-11
+## [0.5.2] - 2026-09-11
+
+### Added
+
+- **Trust an extra CA for outbound HTTPS (`EXTRA_ROOT_CA_FILE` /
+  `caBundle.configMapName`).** This app's HTTP client resolves to
+  `rustls` + a fixed, compiled-in list of public CAs (`webpki-roots`) —
+  not the OS trust store, and it doesn't read `SSL_CERT_FILE`. That's
+  invisible until `OIDC_ISSUER_URL` points at a server whose certificate
+  is signed by a private/internal CA, at which point OIDC discovery
+  fails outright with an `UnknownIssuer` TLS error and the app won't
+  start. `EXTRA_ROOT_CA_FILE` names a PEM file (one or more certificates)
+  to additionally trust for the backend's own outbound HTTPS calls
+  (today, only OIDC discovery and token exchange) — purely additive, so
+  it can never break a previously-working public issuer. The chart's new
+  `caBundle.configMapName`/`caBundle.configMapKey` mount an existing
+  ConfigMap into the pod and wire the env var to it automatically — a
+  [cert-manager `trust-manager`](https://github.com/cert-manager/trust-manager)
+  `Bundle` (`useDefaultCAs: true`) is a natural source for that ConfigMap,
+  since its output is already a complete drop-in CA file. Verified
+  end-to-end against a real internal-CA-signed Keycloak instance: fails
+  with `UnknownIssuer` without the flag set, discovers and completes a
+  full login with it set.
 
 ### Fixed
 
@@ -423,7 +445,8 @@ own cluster.
   section still listed it as missing, contradicting the security-notes
   section describing the throttle).
 
-[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/Techboredom/Helve/releases/tag/v0.5.2
 [0.5.1]: https://github.com/Techboredom/Helve/releases/tag/v0.5.1
 [0.5.0]: https://github.com/Techboredom/Helve/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Techboredom/Helve/releases/tag/v0.4.1
