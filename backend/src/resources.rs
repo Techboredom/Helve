@@ -8,6 +8,15 @@ use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 /// them, via `CreateDeploymentRequest` — see `backend/src/deployments.rs`.
 pub const OWNER_LABEL: &str = "helve.io/owner";
 
+/// Name Istio's injection webhook always gives the sidecar container it adds
+/// to every meshed pod at admission time — invisible to the stored
+/// Deployment spec (`quota.rs` reads that, not live Pods, so it's
+/// unaffected), but very visible here: without filtering it out, the Pods
+/// tab would show "2/2" containers instead of "1/1" and silently inflate
+/// every launched app's displayed CPU/memory usage by the sidecar's own,
+/// the moment `istio.enabled=true`.
+const ISTIO_SIDECAR_CONTAINER: &str = "istio-proxy";
+
 /// Converts a Kubernetes `Pod` into our slimmed-down `PodInfo`, aggregating
 /// resource requests/limits (and accelerator resources) across all containers.
 pub fn pod_to_info(pod: &Pod) -> PodInfo {
@@ -29,10 +38,13 @@ pub fn pod_to_info(pod: &Pod) -> PodInfo {
         .and_then(|s| s.start_time.as_ref())
         .map(|t| t.0.to_string());
 
-    let total_containers = spec.map(|s| s.containers.len() as u32).unwrap_or(0);
+    let total_containers =
+        spec.map(|s| s.containers.iter().filter(|c| c.name != ISTIO_SIDECAR_CONTAINER).count() as u32).unwrap_or(0);
     let containers: Vec<ContainerStatusInfo> = status
         .and_then(|s| s.container_statuses.as_ref())
-        .map(|statuses| statuses.iter().map(container_status_info).collect())
+        .map(|statuses| {
+            statuses.iter().filter(|cs| cs.name != ISTIO_SIDECAR_CONTAINER).map(container_status_info).collect()
+        })
         .unwrap_or_default();
     let ready_containers = containers.iter().filter(|c| c.ready).count() as u32;
     let restarts = containers.iter().map(|c| c.restart_count).sum();
@@ -44,7 +56,7 @@ pub fn pod_to_info(pod: &Pod) -> PodInfo {
     let mut accelerators: BTreeMap<String, i64> = BTreeMap::new();
 
     if let Some(spec) = spec {
-        for container in &spec.containers {
+        for container in spec.containers.iter().filter(|c| c.name != ISTIO_SIDECAR_CONTAINER) {
             let Some(resources) = &container.resources else {
                 continue;
             };
@@ -101,6 +113,7 @@ pub fn pod_to_info(pod: &Pod) -> PodInfo {
         credential: None,
         proxy_path: None,
         access: None,
+        models_access: None,
     }
 }
 

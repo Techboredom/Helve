@@ -4,8 +4,10 @@ mod error;
 mod events;
 mod groups;
 mod images;
+mod istio;
 mod ldap;
 mod logs;
+mod models_proxy;
 mod oidc;
 mod proxy;
 mod quota;
@@ -222,6 +224,31 @@ struct Args {
     /// file is trusted, not just the first.
     #[arg(long, env = "EXTRA_ROOT_CA_FILE")]
     extra_root_ca_file: Option<String>,
+
+    /// Turns on Istio service-mesh mTLS pod-to-pod tenant isolation: every
+    /// launched deployment gets its own owner-scoped ServiceAccount and a
+    /// per-deployment `AuthorizationPolicy` restricting inbound traffic to
+    /// just this app's own principal and that deployment's owner's — see
+    /// backend/src/istio.rs. Requires the cluster to already have Istio
+    /// installed with the target namespace labeled for sidecar injection;
+    /// this app never installs or configures Istio itself. Off by default,
+    /// with zero behavior change either way when left off.
+    #[arg(long, env = "ISTIO_ENABLED", default_value_t = false)]
+    istio_enabled: bool,
+
+    /// Istio's trust domain — the first segment of every SPIFFE-style
+    /// principal this feature compares against. Only meaningful with
+    /// `--istio-enabled`.
+    #[arg(long, env = "ISTIO_TRUST_DOMAIN", default_value = "cluster.local")]
+    istio_trust_domain: String,
+
+    /// This app's own ServiceAccount name, so every `AuthorizationPolicy` it
+    /// creates can always allow its own reverse-proxy traffic through
+    /// alongside a deployment's owner. Normally sourced by the chart from
+    /// the pod's own downward-API `spec.serviceAccountName` — required
+    /// alongside `--istio-enabled`.
+    #[arg(long, env = "ISTIO_BACKEND_SERVICE_ACCOUNT")]
+    istio_backend_service_account: Option<String>,
 }
 
 #[tokio::main]
@@ -379,7 +406,24 @@ async fn main() -> anyhow::Result<()> {
         None => None,
     };
 
-    let state = AppState::new(args.namespace.clone(), client.clone(), pg, app_origin, proxy_origin, home_drives, ldap, oidc);
+    // `istio_backend_service_account` has no clap `requires`/`conflicts_with`
+    // tying it to `istio_enabled` (unlike the LDAP/OIDC flag groups above),
+    // since it's a single optional flag rather than several — checked here instead.
+    let istio = if args.istio_enabled {
+        let backend_service_account = args.istio_backend_service_account.clone().ok_or_else(|| {
+            anyhow::anyhow!("ISTIO_ENABLED=true requires ISTIO_BACKEND_SERVICE_ACCOUNT (the backend pod's own ServiceAccount name)")
+        })?;
+        tracing::info!(
+            trust_domain = %args.istio_trust_domain,
+            backend_service_account,
+            "Istio pod-to-pod tenant isolation enabled"
+        );
+        Some(state::IstioConfig { trust_domain: args.istio_trust_domain.clone(), backend_service_account })
+    } else {
+        None
+    };
+
+    let state = AppState::new(args.namespace.clone(), client.clone(), pg, app_origin, proxy_origin, home_drives, ldap, oidc, istio);
     tokio::spawn(watch::run(state.clone(), client));
     tokio::spawn(prune_expired_credentials(state.clone()));
 
@@ -444,6 +488,15 @@ async fn main() -> anyhow::Result<()> {
         // it lands here, on the app origin, where the caller's session cookie
         // actually exists. See proxy::start_proxy_auth.
         .route("/proxy-auth", get(proxy::start_proxy_auth))
+        // Bearer-token-authenticated reverse proxy for API tooling (a coding
+        // assistant, a script) — no session, no cookies, so unlike /proxy/
+        // above it needs no redirect handshake or per-deployment origin.
+        // Same bare/trailing-slash/wildcard three-route split as /proxy/,
+        // for the same matchit wildcard-requires-a-char reason. See
+        // models_proxy.rs.
+        .route("/models/{username}/{engine_slug}", any(models_proxy::handler_root))
+        .route("/models/{username}/{engine_slug}/", any(models_proxy::handler_root))
+        .route("/models/{username}/{engine_slug}/{*rest}", any(models_proxy::handler))
         .fallback_service(static_service)
         // No CORS layer: the frontend is served by this same process, so
         // every call it makes is same-origin. `trunk serve` proxies to the

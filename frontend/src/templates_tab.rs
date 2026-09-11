@@ -43,6 +43,8 @@ pub fn TemplatesTab() -> impl IntoView {
     let secret_env_key = RwSignal::new(String::new());
     let proxy_enabled = RwSignal::new(false);
     let strip_prefix = RwSignal::new(false);
+    let engine_slug = RwSignal::new(String::new());
+    let api_proxy_enabled = RwSignal::new(false);
     // Off by default; see the matching default in create_deployment_tab.rs.
     let public_service = RwSignal::new(false);
 
@@ -104,6 +106,8 @@ pub fn TemplatesTab() -> impl IntoView {
         proxy_enabled.set(false);
         strip_prefix.set(false);
         public_service.set(false);
+        engine_slug.set(String::new());
+        api_proxy_enabled.set(false);
     };
 
     let load_into_form = move |t: &TemplateEntry| {
@@ -136,6 +140,8 @@ pub fn TemplatesTab() -> impl IntoView {
         proxy_enabled.set(t.proxy_enabled);
         strip_prefix.set(t.strip_prefix);
         public_service.set(t.public_service);
+        engine_slug.set(t.engine_slug.clone().unwrap_or_default());
+        api_proxy_enabled.set(t.api_proxy_enabled);
         form_result.set(None);
     };
 
@@ -201,6 +207,11 @@ pub fn TemplatesTab() -> impl IntoView {
             proxy_enabled: proxy_enabled.get(),
             strip_prefix: strip_prefix.get(),
             public_service: public_service.get(),
+            engine_slug: {
+                let slug = engine_slug.get().trim().to_string();
+                if slug.is_empty() { None } else { Some(slug) }
+            },
+            api_proxy_enabled: api_proxy_enabled.get(),
         };
 
         let id = editing_id.get();
@@ -606,6 +617,26 @@ pub fn TemplatesTab() -> impl IntoView {
                         on:change=move |ev| public_service.set(event_target_checked(&ev))
                     />
                     "Public LoadBalancer Service (uncheck to make it internal — reachable only from inside the cluster, e.g. by other tooling pods, or via Helve's proxy for apps with no auth of their own)"
+                </label>
+
+                <label>
+                    "Engine slug (for the /models/ API proxy below)"
+                    <input
+                        type="text"
+                        maxlength="63"
+                        placeholder="e.g. ollama, vllm, sglang"
+                        prop:value=move || engine_slug.get()
+                        on:input=move |ev| engine_slug.set(event_target_value(&ev))
+                    />
+                </label>
+
+                <label class="checkbox">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || api_proxy_enabled.get()
+                        on:change=move |ev| api_proxy_enabled.set(event_target_checked(&ev))
+                    />
+                    "Also reachable via Helve's bearer-token /models/<username>/<engine slug>/ route — a stable URL for API tooling (a coding assistant, a script), separate from the session-cookie /proxy/ route above and requiring no Helve login at all. Requires the engine slug above."
                 </label>
 
                 <div class="form-actions">

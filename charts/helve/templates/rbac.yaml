@@ -65,6 +65,21 @@ rules:
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list"]
+  {{- if .Values.istio.enabled }}
+  # Istio pod-to-pod tenant isolation (see README.md's Istio section):
+  # `serviceaccounts` backs ensure_owner_service_account, one deterministic,
+  # unprivileged ServiceAccount per owner reused across every deployment
+  # they launch — Helve never deletes one. `authorizationpolicies` backs
+  # the matching per-deployment AuthorizationPolicy created alongside every
+  # launch and removed alongside every delete; no `update` since Helve
+  # never edits one in place, only creates or deletes it whole.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "create"]
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies"]
+    verbs: ["get", "create", "delete"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

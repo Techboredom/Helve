@@ -134,6 +134,25 @@ pub fn image_ref(value: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// An admin-set `engine_slug` (e.g. `"ollama"`, `"vllm"`, `"sglang"`) —
+/// lowercase alphanumeric-and-hyphen, same DNS-1123-ish grammar as
+/// `k8s_name`/`username`, since it becomes a path segment under
+/// `/models/<username>/<engine_slug>/...` (`backend/src/models_proxy.rs`).
+pub fn slug(field: &str, value: &str) -> Result<(), ApiError> {
+    if value.is_empty() || value.len() > 63 {
+        return Err(bad(field, "must be 1-63 characters"));
+    }
+    let bytes = value.as_bytes();
+    let is_alphanumeric = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+    if !is_alphanumeric(bytes[0]) || !is_alphanumeric(bytes[bytes.len() - 1]) {
+        return Err(bad(field, "must start and end with a lowercase letter or digit"));
+    }
+    if !bytes.iter().all(|&b| is_alphanumeric(b) || b == b'-') {
+        return Err(bad(field, "must be lowercase alphanumeric characters or '-' only"));
+    }
+    Ok(())
+}
+
 pub fn container_port(port: i32) -> Result<(), ApiError> {
     if !(1..=65535).contains(&port) {
         return Err(bad("container_port", "must be between 1 and 65535"));
@@ -488,6 +507,16 @@ mod tests {
         assert!(!is_ok(group_ids(&[1, 0])));
         assert!(!is_ok(group_ids(&[-1])));
         assert!(!is_ok(group_ids(&(1..=33).collect::<Vec<i32>>())));
+    }
+
+    #[test]
+    fn slug_accepts_engine_names_and_rejects_bad_ones() {
+        for value in ["ollama", "vllm", "sglang", "a", &"a".repeat(63)] {
+            assert!(is_ok(slug("engine_slug", value)), "should accept {value}");
+        }
+        for value in ["", "Ollama", "vllm_api", "-leading", "trailing-", &"a".repeat(64)] {
+            assert!(!is_ok(slug("engine_slug", value)), "should reject {value:?}");
+        }
     }
 
     #[test]

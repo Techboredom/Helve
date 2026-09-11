@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use axum::extract::{Path, State};
 use axum::Json;
 use common::{
-    CreateDeploymentRequest, CreateDeploymentResponse, DeploymentDetail, LaunchLogEntry, PvcEntry, RegenerateSecretResponse, Role,
-    UpdateDeploymentRequest,
+    CreateDeploymentRequest, CreateDeploymentResponse, DeploymentDetail, LaunchLogEntry, ModelsAccess, PvcEntry,
+    RegenerateSecretResponse, Role, UpdateDeploymentRequest,
 };
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec, ReplicaSet};
 use k8s_openapi::api::core::v1::{
@@ -23,6 +23,8 @@ use time::OffsetDateTime;
 
 use crate::auth::{generate_name_suffix, generate_token, CurrentUser};
 use crate::error::ApiError;
+use crate::istio;
+use crate::models_proxy;
 use crate::quota;
 use crate::resources::{parse_count, parse_cpu_millicores, parse_memory_bytes, OWNER_LABEL};
 use crate::state::{AppState, HomeDrives};
@@ -406,6 +408,17 @@ pub async fn create_deployment(
     if req.enable_proxy && req.container_port.is_none() {
         return Err(ApiError::BadRequest("enable_proxy requires container_port".into()));
     }
+    if req.api_proxy_enabled {
+        let engine_slug = req
+            .engine_slug
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| ApiError::BadRequest("api_proxy_enabled requires engine_slug".to_string()))?;
+        validate::slug("engine_slug", engine_slug)?;
+        if req.container_port.is_none() {
+            return Err(ApiError::BadRequest("api_proxy_enabled requires container_port".into()));
+        }
+    }
     if let Some(path) = req.readiness_path.as_deref().filter(|p| !p.is_empty()) {
         validate::http_path("readiness_path", path)?;
         if req.container_port.is_none() {
@@ -525,6 +538,17 @@ pub async fn create_deployment(
         env.push(EnvVar { name: key.clone(), value: Some(value.clone()), ..Default::default() });
         value
     });
+    // Derived from the deployment's own `model` field (not the template's),
+    // so two concurrent same-engine deployments serving different models
+    // get distinct `/models/<user>/<engine>/<model-slug>/...` paths instead
+    // of colliding. `None` when `model` is unset (Ollama, typically).
+    let model_slug = req.model.as_deref().map(slugify).filter(|s| !s.is_empty());
+    // Reuses the same value already generated for `generate_secret_for`
+    // when there is one (vLLM's VLLM_API_KEY doubles as its /models/ bearer
+    // token too, so nothing about the displayed credential changes) —
+    // otherwise generates independently (Ollama, which has no env var for
+    // this at all).
+    let proxy_token = req.api_proxy_enabled.then(|| generated_secret.clone().unwrap_or_else(generate_token));
     let args = substitute_args(
         &req.args,
         &scoped_name,
@@ -665,6 +689,19 @@ pub async fn create_deployment(
     let mut object_labels = selector_labels.clone();
     object_labels.insert(OWNER_LABEL.to_string(), user.username.clone());
 
+    // Istio identifies mTLS peers by ServiceAccount, not by the OWNER_LABEL
+    // above — every owner therefore gets their own, reused across every
+    // deployment they launch, so ensure_authorization_policy (below, once
+    // this Deployment exists) can allow-list it specifically. `None` when
+    // the feature is off: the pod then keeps using the namespace's `default`
+    // ServiceAccount, exactly as it always has.
+    let owner_service_account = match &state.istio {
+        Some(_) => Some(istio::ensure_owner_service_account(&state, &user.username).await?),
+        None => None,
+    };
+    let pod_annotations =
+        state.istio.is_some().then(|| BTreeMap::from([("sidecar.istio.io/inject".to_string(), "true".to_string())]));
+
     let deployment = Deployment {
         metadata: ObjectMeta {
             name: Some(scoped_name.clone()),
@@ -681,9 +718,11 @@ pub async fn create_deployment(
             template: PodTemplateSpec {
                 metadata: Some(ObjectMeta {
                     labels: Some(object_labels.clone()),
+                    annotations: pod_annotations,
                     ..Default::default()
                 }),
                 spec: Some(PodSpec {
+                    service_account_name: owner_service_account.clone(),
                     node_selector: node_selector_for(&user),
                     security_context: security_context_for(&user),
                     init_containers,
@@ -767,21 +806,41 @@ pub async fn create_deployment(
         service_name = created_service.metadata.name;
     }
 
+    // Hard-fail with rollback rather than best-effort: a pod running without
+    // its own isolation policy would silently defeat this whole feature, so
+    // a failure here can't just be logged and ignored the way it can for
+    // secondary bookkeeping (deployment_secrets/launch_log below).
+    if let (Some(istio_config), Some(owner_sa)) = (&state.istio, &owner_service_account)
+        && let Err(err) = istio::ensure_authorization_policy(&state, istio_config, &name, owner_sa).await
+    {
+        if let Err(cleanup_err) = deployments.delete(&name, &DeleteParams::default()).await {
+            tracing::error!(deployment = %name, error = %cleanup_err, "failed to roll back Deployment after AuthorizationPolicy creation failed");
+        }
+        if service_name.is_some() {
+            let services: Api<Service> = Api::namespaced(state.client.clone(), &state.namespace);
+            if let Err(cleanup_err) = services.delete(&name, &DeleteParams::default()).await {
+                tracing::error!(deployment = %name, error = %cleanup_err, "failed to roll back Service after AuthorizationPolicy creation failed");
+            }
+        }
+        return Err(err);
+    }
+
     // Tracks proxy-routing metadata (not just credentials) for any
     // proxy-enabled deployment, even ones with no generated secret at all
     // (e.g. RStudio run with DISABLE_AUTH=true, relying solely on the
     // ownership check below).
-    if req.generate_secret_for.is_some() || req.enable_proxy {
+    if req.generate_secret_for.is_some() || req.enable_proxy || req.api_proxy_enabled {
         sqlx::query(
             "INSERT INTO deployment_secrets \
                 (deployment_name, namespace, env_key, secret_value, owner_username, proxy_enabled, \
-                 container_port, strip_prefix) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+                 container_port, strip_prefix, proxy_token, engine_slug, model_slug) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
              ON CONFLICT (deployment_name) DO UPDATE SET \
                 namespace = EXCLUDED.namespace, env_key = EXCLUDED.env_key, \
                 secret_value = EXCLUDED.secret_value, owner_username = EXCLUDED.owner_username, \
                 proxy_enabled = EXCLUDED.proxy_enabled, container_port = EXCLUDED.container_port, \
-                strip_prefix = EXCLUDED.strip_prefix",
+                strip_prefix = EXCLUDED.strip_prefix, proxy_token = EXCLUDED.proxy_token, \
+                engine_slug = EXCLUDED.engine_slug, model_slug = EXCLUDED.model_slug",
         )
         .bind(&name)
         .bind(&state.namespace)
@@ -791,6 +850,9 @@ pub async fn create_deployment(
         .bind(req.enable_proxy)
         .bind(req.container_port)
         .bind(req.strip_prefix)
+        .bind(&proxy_token)
+        .bind(&req.engine_slug)
+        .bind(&model_slug)
         .execute(&state.pg)
         .await?;
     }
@@ -833,6 +895,10 @@ pub async fn create_deployment(
     .await?;
 
     let proxy_path = req.enable_proxy.then(|| state.proxy_url(&name));
+    let models_access = proxy_token.clone().zip(req.engine_slug.clone()).map(|(token, engine_slug)| ModelsAccess {
+        url: models_proxy::models_url(&user.username, &engine_slug, model_slug.as_deref()),
+        token,
+    });
 
     Ok(Json(CreateDeploymentResponse {
         name,
@@ -842,6 +908,7 @@ pub async fn create_deployment(
         secret_value: generated_secret,
         proxy_path,
         public_service: req.public_service,
+        models_access,
     }))
 }
 
@@ -1177,11 +1244,23 @@ pub async fn regenerate_secret(
         return Err(ApiError::BadRequest("this deployment has no auto-generated credential to regenerate".to_string()));
     };
     let new_value = generate_token();
-    sqlx::query("UPDATE deployment_secrets SET secret_value = $1 WHERE deployment_name = $2")
-        .bind(&new_value)
-        .bind(&name)
-        .execute(&state.pg)
-        .await?;
+    // proxy_token only moves in lockstep here when it was set to the same
+    // value as secret_value in the first place (the vLLM/SGLang case: one
+    // generated value serves as both the env var and the /models/ bearer
+    // token) — a freshly-generated proxy_token with no env var backing it
+    // at all (Ollama) is untouched by regenerating a *different* credential.
+    // The CASE's `secret_value`/`proxy_token` refer to the pre-update row
+    // (Postgres evaluates every SET expression against the old row), so
+    // this is "were they equal before this UPDATE ran", not a self-reference.
+    sqlx::query(
+        "UPDATE deployment_secrets SET secret_value = $1, \
+            proxy_token = CASE WHEN proxy_token = secret_value THEN $1 ELSE proxy_token END \
+         WHERE deployment_name = $2",
+    )
+    .bind(&new_value)
+    .bind(&name)
+    .execute(&state.pg)
+    .await?;
 
     bump_restarted_at(&mut deployment);
     if let Some(container) =
@@ -1327,6 +1406,10 @@ pub async fn delete_deployment(
         }
     }
 
+    if state.istio.is_some() {
+        istio::delete_authorization_policy(&state, &name).await?;
+    }
+
     sqlx::query("DELETE FROM deployment_secrets WHERE deployment_name = $1").bind(&name).execute(&state.pg).await?;
     Ok(())
 }
@@ -1371,6 +1454,11 @@ mod tests {
         assert_eq!(slugify("My Cool App!!"), "my-cool-app");
         assert_eq!(slugify("--leading-and-trailing--"), "leading-and-trailing");
         assert_eq!(slugify(""), "");
+        // A Hugging Face model ID — the '/' between org and model name
+        // collapses the same as any other non-alphanumeric run, which is
+        // exactly what create_deployment's model_slug relies on to turn
+        // `model` into a /models/<user>/<engine>/<model-slug>/ path segment.
+        assert_eq!(slugify("meta-llama/Llama-3-8B"), "meta-llama-llama-3-8b");
     }
 
     #[test]

@@ -113,6 +113,7 @@ pub fn PodsTab(is_admin: bool) -> impl IntoView {
                             <th>"Memory limit"</th>
                             <th>"Accelerators"</th>
                             <th>"Credential"</th>
+                            <th>"API proxy"</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -147,6 +148,7 @@ fn PodRow(pod: PodInfo, selected_pod: RwSignal<Option<String>>, is_admin: bool, 
     let owner = pod.owner.clone().unwrap_or_else(|| "—".into());
     let credential = pod.credential.clone();
     let proxy_path = pod.proxy_path.clone();
+    let models_access = pod.models_access.clone();
     // Split out up front so the view can use each independently without
     // borrowing `pod.access` across the two closures below.
     let external_url = pod.access.as_ref().and_then(|a| a.external_url.clone());
@@ -232,6 +234,20 @@ fn PodRow(pod: PodInfo, selected_pod: RwSignal<Option<String>>, is_admin: bool, 
                             <span class="credential-key">{cred.env_key}</span>
                             <code class="credential-value" title="Click to select, then copy">
                                 {cred.value}
+                            </code>
+                        </div>
+                    }
+                        .into_any(),
+                }}
+            </td>
+            <td>
+                {match models_access {
+                    None => view! { "—" }.into_any(),
+                    Some(access) => view! {
+                        <div class="credential">
+                            <span class="credential-key" title="Paste into a tool's API base URL">{access.url}</span>
+                            <code class="credential-value" title="Bearer token — click to select, then copy">
+                                {access.token}
                             </code>
                         </div>
                     }

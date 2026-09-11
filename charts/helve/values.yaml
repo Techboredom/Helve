@@ -167,6 +167,24 @@ adminBootstrap:
   # exists. See NOTES.txt for retrieving and clearing it after first login.
   password: ""
 
+istio:
+  # Istio service-mesh mTLS pod-to-pod tenant isolation: every launched
+  # deployment gets its own owner-scoped ServiceAccount and a per-deployment
+  # AuthorizationPolicy restricting inbound traffic to just this app's own
+  # principal and that deployment's owner's, so one tenant's pod can no
+  # longer reach another's ClusterIP directly. Requires Istio >= 1.17
+  # already installed on the cluster (for the stable security.istio.io/v1
+  # API) and the target namespace labeled "istio-injection=enabled" — this
+  # chart owns no Namespace resource and never installs or configures Istio
+  # itself, matching its existing "assumes the namespace already exists"
+  # stance elsewhere. See README.md's Istio section. Off by default, with
+  # zero behavior change either way when left off.
+  enabled: false
+  # Istio's trust domain — the first segment of every SPIFFE-style
+  # principal this feature compares against. "cluster.local" is Istio's own
+  # default and rarely needs changing.
+  trustDomain: cluster.local
+
 caBundle:
   # Mounts an existing ConfigMap into the pod and points the backend at a
   # key in it, so its own outbound HTTPS calls (OIDC discovery/token

@@ -11,6 +11,7 @@ pub enum ApiError {
     BadRequest(String),
     Unauthorized,
     Forbidden(String),
+    NotFound(String),
     /// The proxied app couldn't be reached (connection timeout/failure,
     /// handshake failure, ...) — distinct from `BadRequest` since it's not
     /// the caller's fault.
@@ -56,6 +57,7 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "not logged in".to_string()),
             ApiError::Forbidden(message) => (StatusCode::FORBIDDEN, message),
+            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
             ApiError::ProxyUnavailable(message) => (StatusCode::BAD_GATEWAY, message),
             ApiError::TooManyRequests(message) => (StatusCode::TOO_MANY_REQUESTS, message),
         };

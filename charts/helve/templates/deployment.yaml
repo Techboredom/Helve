@@ -26,6 +26,10 @@ spec:
     metadata:
       labels:
         {{- include "helve.selectorLabels" . | nindent 8 }}
+      {{- if .Values.istio.enabled }}
+      annotations:
+        sidecar.istio.io/inject: "true"
+      {{- end }}
     spec:
       serviceAccountName: {{ include "helve.serviceAccountName" . }}
       # Kubernetes removes a Terminating pod from Service endpoints
@@ -165,6 +169,21 @@ spec:
             {{- if .Values.caBundle.configMapName }}
             - name: EXTRA_ROOT_CA_FILE
               value: /etc/helve/ca-bundle/{{ .Values.caBundle.configMapKey }}
+            {{- end }}
+            - name: ISTIO_ENABLED
+              value: {{ .Values.istio.enabled | quote }}
+            {{- if .Values.istio.enabled }}
+            - name: ISTIO_TRUST_DOMAIN
+              value: {{ .Values.istio.trustDomain | quote }}
+            # So every AuthorizationPolicy this app creates can always
+            # allow-list its own reverse-proxy traffic alongside a
+            # deployment's owner — read from the pod's own downward API
+            # rather than duplicated into values.yaml, so it can never drift
+            # from helve.serviceAccountName above.
+            - name: ISTIO_BACKEND_SERVICE_ACCOUNT
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.serviceAccountName
             {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}

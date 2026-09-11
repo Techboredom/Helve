@@ -1,4 +1,4 @@
-use common::{CreateDeploymentRequest, CreateDeploymentResponse, ImageEntry, MyQuota, PvcEntry, TemplateEntry};
+use common::{CreateDeploymentRequest, CreateDeploymentResponse, ImageEntry, ModelsAccess, MyQuota, PvcEntry, TemplateEntry};
 use leptos::prelude::*;
 use leptos::tachys::dom::event_target_value;
 use leptos::task::spawn_local;
@@ -9,8 +9,8 @@ use crate::result_banner::{ErrorBanner};
 use crate::env_editor::{EnvVars, EnvVarsEditor};
 use crate::format::{fixed_request_note, quota_summary};
 
-/// A successful launch's (message, proxy_path) pair.
-type LaunchResult = Result<(String, Option<String>), String>;
+/// A successful launch's (message, proxy_path, models_access) triple.
+type LaunchResult = Result<(String, Option<String>, Option<ModelsAccess>), String>;
 
 #[component]
 pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
@@ -50,6 +50,8 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
     let secret_env_key = RwSignal::new(None::<String>);
     let proxy_enabled = RwSignal::new(false);
     let strip_prefix = RwSignal::new(false);
+    let engine_slug = RwSignal::new(None::<String>);
+    let api_proxy_enabled = RwSignal::new(false);
     // Off by default: per-deployment proxy origins are the intended access
     // path now, and a public LoadBalancer Service is the thing most likely
     // to sit stuck at <pending> on a cluster with no LB controller.
@@ -140,6 +142,8 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
         proxy_enabled.set(t.proxy_enabled);
         strip_prefix.set(t.strip_prefix);
         public_service.set(t.public_service);
+        engine_slug.set(t.engine_slug.clone());
+        api_proxy_enabled.set(t.api_proxy_enabled);
     };
 
     let reset_to_custom = move || {
@@ -171,6 +175,8 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
         proxy_enabled.set(false);
         strip_prefix.set(false);
         public_service.set(false);
+        engine_slug.set(None);
+        api_proxy_enabled.set(false);
     };
 
     let on_template_change = move |ev: web_sys::Event| {
@@ -229,6 +235,8 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
             enable_proxy: proxy_enabled.get(),
             strip_prefix: strip_prefix.get(),
             public_service: public_service.get(),
+            engine_slug: engine_slug.get(),
+            api_proxy_enabled: api_proxy_enabled.get(),
         };
 
         submitting.set(true);
@@ -287,6 +295,17 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
                         None
                     };
                     text.map(|text| view! { <div class="template-notes">{text}</div> })
+                }}
+                {move || {
+                    api_proxy_enabled
+                        .get()
+                        .then(|| {
+                            view! {
+                                <div class="template-notes">
+                                    "Also gets a stable /models/<username>/<engine>/... URL and bearer token for API tooling (a coding assistant, a script) — shown after launch and on the Pods tab. No Helve login needed for that route at all, unlike the proxy link above."
+                                </div>
+                            }
+                        })
                 }}
 
                 <label>
@@ -612,7 +631,7 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
 
             {move || {
                 result.get().map(|res| match res {
-                    Ok((msg, proxy_path)) => {
+                    Ok((msg, proxy_path, models_access)) => {
                         view! {
                             <div class="success">
                                 {msg}
@@ -622,6 +641,16 @@ pub fn CreateDeploymentTab(is_admin: bool) -> impl IntoView {
                                         <a class="icon-button" href=path target="_blank">
                                             "Open"
                                         </a>
+                                    }
+                                })}
+                                {models_access.map(|access| {
+                                    view! {
+                                        <div class="credential">
+                                            <span class="credential-key">{access.url.clone()}</span>
+                                            <code class="credential-value" title="Click to select, then copy">
+                                                {access.token}
+                                            </code>
+                                        </div>
                                     }
                                 })}
                             </div>
@@ -664,6 +693,9 @@ async fn submit(req: CreateDeploymentRequest) -> LaunchResult {
         if let Some(secret) = created.secret_value {
             msg.push_str(&format!(" Generated credential: {secret} (also shown on the Pods tab)."));
         }
-        Ok((msg, created.proxy_path))
+        if created.models_access.is_some() {
+            msg.push_str(" A /models/ URL and bearer token for API tooling are shown below (also on the Pods tab).");
+        }
+        Ok((msg, created.proxy_path, created.models_access))
     }
 }

@@ -147,6 +147,8 @@ and their required credentials.
 | `oidc.autoProvision` | `true` | Whether a first-time SSO login with no linked account creates one automatically. See the main README's SSO section for the pre-created-account linking this enables when `false`. |
 | `caBundle.configMapName` | `""` | Existing ConfigMap to mount and trust for the backend's own outbound HTTPS calls (OIDC discovery/token exchange) — needed when `oidc.issuerUrl` is signed by a private/internal CA. Empty (default): none. A [cert-manager `trust-manager`](https://github.com/cert-manager/trust-manager) `Bundle` output is a natural fit. |
 | `caBundle.configMapKey` | `ca-certificates.crt` | Key within `caBundle.configMapName` holding a PEM CA bundle. |
+| `istio.enabled` | `false` | Turns on Istio mTLS pod-to-pod tenant isolation between launched deployments. See "Istio pod-to-pod tenant isolation" below. |
+| `istio.trustDomain` | `cluster.local` | Istio's trust domain — rarely needs changing from Istio's own default. |
 | `nodeSelector` | `{}` | |
 | `tolerations` | `[]` | |
 | `affinity` | `{}` | |
@@ -227,6 +229,44 @@ containers can then write there regardless of their `runAsUser`. Failing
 that, pre-create each user's directory with matching ownership, or leave
 `uid`/`gid` unset for users whose images already run fine as whatever
 identity the filesystem already grants access to.
+
+## Istio pod-to-pod tenant isolation
+
+Off by default (`istio.enabled: false`), with zero behavior change either
+way when left off. When turned on, every deployment Helve launches from
+then on gets its own owner-scoped ServiceAccount and a per-deployment
+Istio `AuthorizationPolicy` restricting inbound traffic to just that
+pod, allowing only Helve's own backend and that deployment's owner —
+closing the gap where, today, any pod in the namespace (another
+tenant's JupyterLab kernel, a coding agent hitting Ollama) can reach any
+other pod's `ClusterIP` directly, bypassing Helve's own ownership check
+entirely. See the main README's cross-referenced section for exactly how
+this works and what it does and doesn't cover.
+
+**Prerequisites, none of which this chart provisions itself** — same
+"points at it, never provisions it" stance this chart already takes with
+external LDAP/OIDC servers:
+
+- Istio **>= 1.17** already installed on the cluster (the version that
+  graduated `security.istio.io/v1` — `AuthorizationPolicy`/
+  `PeerAuthentication` — to GA/stable; this chart's `templates/istio.yaml`
+  renders that API version unconditionally, not a beta fallback).
+- The target namespace labeled for sidecar injection, since this chart
+  owns no `Namespace` resource of its own (same assumption as everywhere
+  else in this chart — see "Prerequisites" at the top):
+  ```console
+  kubectl label namespace <your-namespace> istio-injection=enabled
+  ```
+
+**Upgrade note**: turning `istio.enabled` on protects *newly launched*
+deployments from that point forward. Anything already running keeps using
+the namespace's `default` ServiceAccount and has no sidecar injected, and
+stays that way until its owner relaunches it — Helve never recreates a
+running pod on its own, and neither "Restart" nor "Roll back" on the Pods
+tab's manage panel touches `serviceAccountName` or the injection
+annotation (they only ever replay the existing pod template, unmodified,
+or bump a timestamp annotation), so only a fresh launch (delete + relaunch,
+or a brand-new one) actually picks this up.
 
 ## Guards
 

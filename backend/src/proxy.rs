@@ -377,7 +377,7 @@ async fn proxy_request(
     // base_url model needs the full path instead.
     rest: String,
     state: AppState,
-    mut req: Request,
+    req: Request,
     // True when serving the deployment's own origin, where the app sits at
     // the root and the incoming path is already exactly what the pod should
     // see — no prefix to add or strip either way.
@@ -388,35 +388,7 @@ async fn proxy_request(
         return Err(ApiError::Forbidden("you don't own this deployment".to_string()));
     }
 
-    let port = target.container_port as u16;
-    let services: Api<Service> = Api::namespaced(state.client.clone(), &state.namespace);
-    let service = services
-        .get(&deployment_name)
-        .await
-        .map_err(|err| ApiError::ProxyUnavailable(format!("couldn't look up {deployment_name}'s Service: {err}")))?;
-    let cluster_ip = service
-        .spec
-        .and_then(|spec| spec.cluster_ip)
-        .filter(|ip| ip != "None")
-        .ok_or_else(|| ApiError::ProxyUnavailable(format!("{deployment_name} has no ClusterIP yet")))?;
-
-    let stream = tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect((cluster_ip.as_str(), port)))
-        .await
-        .map_err(|_| ApiError::ProxyUnavailable(format!("timed out connecting to {deployment_name}")))?
-        .map_err(|err| ApiError::ProxyUnavailable(format!("couldn't reach {deployment_name}: {err}")))?;
-
-    let (mut sender, conn) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(TokioIo::new(stream))
-        .await
-        .map_err(|err| ApiError::ProxyUnavailable(format!("couldn't connect to {deployment_name}: {err}")))?;
-    let conn_deployment_name = deployment_name.clone();
-    tokio::spawn(async move {
-        if let Err(err) = conn.with_upgrades().await {
-            tracing::warn!(deployment = %conn_deployment_name, %err, "proxy connection to pod ended with error");
-        }
-    });
-
     let is_upgrade = req.headers().get(http::header::UPGRADE).is_some();
-    let client_on_upgrade = is_upgrade.then(|| hyper::upgrade::on(&mut req));
 
     // Two different apps, two different expectations: JupyterLab's
     // `base_url` wants the full "/proxy/{name}/..." path forwarded as-is (it
@@ -437,10 +409,68 @@ async fn proxy_request(
         .as_deref()
         .zip(target.secret_value.as_deref())
         .and_then(|(env_key, secret_value)| credential_header(env_key, secret_value));
+    let outbound_headers = forwarded_headers(req.headers(), is_upgrade, credential.as_deref());
 
-    let mut builder = http::Request::builder().method(req.method().clone()).uri(path_and_query);
+    let mut response =
+        connect_and_stream(&state, &deployment_name, target.container_port, path_and_query, outbound_headers, is_upgrade, req)
+            .await?;
+    drop_session_set_cookie(response.headers_mut());
+    Ok(response)
+}
+
+/// Connects to `deployment_name`'s pod via its Service's in-cluster
+/// `ClusterIP` and forwards `req` into it, streaming the response (including
+/// a WebSocket upgrade) back unmodified. `path_and_query` and
+/// `outbound_headers` replace the request's own URI and headers — every
+/// caller-specific concern (credential injection, cookie stripping/keeping,
+/// prefix stripping, path-vs-token consistency checks) is decided by the
+/// caller before this is called; this only knows how to reach a pod and
+/// speak HTTP/1.1 (with upgrades) to it. Shared by the session-cookie
+/// `/proxy/` route above (`proxy_request`) and the bearer-token `/models/`
+/// route (`models_proxy.rs`), so the ~100 lines of hyper/TCP plumbing here
+/// aren't duplicated between them.
+pub(crate) async fn connect_and_stream(
+    state: &AppState,
+    deployment_name: &str,
+    container_port: i32,
+    path_and_query: String,
+    outbound_headers: http::HeaderMap,
+    is_upgrade: bool,
+    mut req: Request,
+) -> Result<Response, ApiError> {
+    let port = container_port as u16;
+    let services: Api<Service> = Api::namespaced(state.client.clone(), &state.namespace);
+    let service = services
+        .get(deployment_name)
+        .await
+        .map_err(|err| ApiError::ProxyUnavailable(format!("couldn't look up {deployment_name}'s Service: {err}")))?;
+    let cluster_ip = service
+        .spec
+        .and_then(|spec| spec.cluster_ip)
+        .filter(|ip| ip != "None")
+        .ok_or_else(|| ApiError::ProxyUnavailable(format!("{deployment_name} has no ClusterIP yet")))?;
+
+    let stream = tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect((cluster_ip.as_str(), port)))
+        .await
+        .map_err(|_| ApiError::ProxyUnavailable(format!("timed out connecting to {deployment_name}")))?
+        .map_err(|err| ApiError::ProxyUnavailable(format!("couldn't reach {deployment_name}: {err}")))?;
+
+    let (mut sender, conn) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(TokioIo::new(stream))
+        .await
+        .map_err(|err| ApiError::ProxyUnavailable(format!("couldn't connect to {deployment_name}: {err}")))?;
+    let conn_deployment_name = deployment_name.to_string();
+    tokio::spawn(async move {
+        if let Err(err) = conn.with_upgrades().await {
+            tracing::warn!(deployment = %conn_deployment_name, %err, "proxy connection to pod ended with error");
+        }
+    });
+
+    let client_on_upgrade = is_upgrade.then(|| hyper::upgrade::on(&mut req));
+    let method = req.method().clone();
+
+    let mut builder = http::Request::builder().method(method).uri(path_and_query);
     if let Some(headers) = builder.headers_mut() {
-        *headers = forwarded_headers(req.headers(), is_upgrade, credential.as_deref());
+        *headers = outbound_headers;
     }
 
     let body = if is_upgrade {
@@ -478,8 +508,7 @@ async fn proxy_request(
                 Err(err) => tracing::warn!(%err, "client-side upgrade handshake failed"),
             }
         });
-        let (mut parts, _) = target_response.into_parts();
-        drop_session_set_cookie(&mut parts.headers);
+        let (parts, _) = target_response.into_parts();
         return Ok(Response::from_parts(parts, Body::empty()));
     }
 
@@ -491,7 +520,6 @@ async fn proxy_request(
             response.headers_mut().append(name.clone(), value.clone());
         }
     }
-    drop_session_set_cookie(response.headers_mut());
     Ok(response)
 }
 
@@ -620,7 +648,7 @@ fn credential_header(env_key: &str, value: &str) -> Option<String> {
     }
 }
 
-fn is_hop_by_hop(name: &HeaderName, allow_upgrade: bool) -> bool {
+pub(crate) fn is_hop_by_hop(name: &HeaderName, allow_upgrade: bool) -> bool {
     matches!(name.as_str(), "proxy-authenticate" | "proxy-authorization" | "te" | "trailers")
         || (!allow_upgrade && matches!(name.as_str(), "connection" | "keep-alive" | "transfer-encoding" | "upgrade"))
 }

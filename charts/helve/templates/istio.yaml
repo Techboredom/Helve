@@ -1,0 +1,71 @@
+{{/*
+Istio service-mesh mTLS pod-to-pod tenant isolation — see README.md's Istio
+section. Every object here is gated behind istio.enabled and requires Istio
+>= 1.17 already installed on the cluster (for the stable
+security.istio.io/v1 API) plus the target namespace labeled
+"istio-injection=enabled" — this chart owns no Namespace resource and never
+installs or configures Istio itself.
+*/}}
+{{- if .Values.istio.enabled }}
+# Fail-closed default: STRICT mTLS for every sidecar-injected workload in
+# the namespace. Non-meshed pods (e.g. a chart-deployed CloudNativePG
+# Postgres) are structurally unaffected — enforcement only ever happens at
+# a workload's own sidecar, and Postgres never gets one.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: {{ include "helve.fullname" . }}-default
+  labels:
+    {{- include "helve.labels" . | nindent 4 }}
+spec:
+  mtls:
+    mode: STRICT
+---
+# Override for this app's own pod: ingress traffic into it arrives as plain
+# HTTP from a non-mesh ingress controller, so requiring mTLS on its own
+# sidecar would break external access to Helve itself.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: {{ include "helve.fullname" . }}-backend
+  labels:
+    {{- include "helve.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "helve.selectorLabels" . | nindent 6 }}
+  mtls:
+    mode: PERMISSIVE
+---
+# Fail-closed default: an ALLOW policy with no rules never matches, so this
+# denies everything by default — the documented Istio idiom for deny-all.
+# Backstops any pod that somehow ends up without its own per-deployment
+# AuthorizationPolicy (backend/src/istio.rs::ensure_authorization_policy),
+# which is the actual enforcement point for every launched deployment.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "helve.fullname" . }}-deny-all
+  labels:
+    {{- include "helve.labels" . | nindent 4 }}
+spec: {}
+---
+# Restores normal reachability to this app's own inbound traffic — the
+# deny-all default above would otherwise also cut off the ingress
+# controller (and the kubelet's health probes) reaching Helve itself.
+# Istio authz here isn't meant to replace Helve's own session-cookie/API-token
+# auth for its own API, only to gate the launched workload pods.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "helve.fullname" . }}-backend
+  labels:
+    {{- include "helve.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "helve.selectorLabels" . | nindent 6 }}
+  action: ALLOW
+  rules:
+    - {}
+{{- end }}

@@ -44,6 +44,21 @@ pub struct PodInfo {
     /// (a coding tool pointed at vLLM's OpenAI-compatible API can't log
     /// in). This is the direct address.
     pub access: Option<PodAccess>,
+    /// If this deployment's template has `api_proxy_enabled`, the stable
+    /// `/models/<username>/<engine_slug>/[<model_slug>/]` URL and bearer
+    /// token that reach it through Helve's token-authenticated reverse
+    /// proxy (`backend/src/models_proxy.rs`) — no Helve login needed, no
+    /// cookies, so unlike `proxy_path` this works from a script or a
+    /// coding tool's config, not just a browser.
+    pub models_access: Option<ModelsAccess>,
+}
+
+/// The URL/token pair that reaches a deployment through the `/models/`
+/// bearer-token proxy — see `PodInfo::models_access`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ModelsAccess {
+    pub url: String,
+    pub token: String,
 }
 
 /// Where a deployment's Service can actually be reached.
@@ -254,6 +269,21 @@ pub struct CreateDeploymentRequest {
     /// `readiness_path`.
     #[serde(default)]
     pub readiness_path: Option<String>,
+    /// Engine identifier (e.g. `"ollama"`, `"vllm"`, `"sglang"`) used as the
+    /// `/models/<username>/<engine_slug>/...` path segment — disambiguates
+    /// concurrent engines for the same user. Comes from the selected
+    /// template's `engine_slug`; meaningless unless `api_proxy_enabled` is
+    /// also set.
+    #[serde(default)]
+    pub engine_slug: Option<String>,
+    /// If set, this deployment also gets a bearer token and is reachable
+    /// via `/models/<username>/<engine_slug>/...` (`backend/src/models_proxy.rs`)
+    /// — Helve's token-authenticated reverse proxy for API tooling, as
+    /// opposed to `enable_proxy`'s session-cookie-authenticated
+    /// `/proxy/<name>/` route for browser apps. Requires `engine_slug` to
+    /// be set. Comes from the selected template's `api_proxy_enabled`.
+    #[serde(default)]
+    pub api_proxy_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -277,6 +307,8 @@ pub struct CreateDeploymentResponse {
     /// someone to go check `kubectl get svc` for an external IP that
     /// doesn't exist.
     pub public_service: bool,
+    /// Present if `api_proxy_enabled` was set — see `PodInfo::models_access`.
+    pub models_access: Option<ModelsAccess>,
 }
 
 /// Returned by `POST /api/deployments/{name}/regenerate-secret`.
@@ -398,6 +430,10 @@ pub struct TemplateEntry {
     pub public_service: bool,
     /// See `CreateDeploymentRequest::readiness_path`. Empty means no probe.
     pub readiness_path: String,
+    /// See `CreateDeploymentRequest::engine_slug`. Empty means unset.
+    pub engine_slug: Option<String>,
+    /// See `CreateDeploymentRequest::api_proxy_enabled`.
+    pub api_proxy_enabled: bool,
 }
 
 /// Submitted by the Templates admin tab to create or update a template.
@@ -431,6 +467,8 @@ pub struct SaveTemplateRequest {
     pub strip_prefix: bool,
     pub public_service: bool,
     pub readiness_path: String,
+    pub engine_slug: Option<String>,
+    pub api_proxy_enabled: bool,
 }
 
 /// An existing `PersistentVolumeClaim` in the watched namespace, for the

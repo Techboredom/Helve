@@ -165,6 +165,25 @@ pub struct OidcConfig {
     pub auto_provision: bool,
 }
 
+/// Istio service-mesh mTLS pod-to-pod tenant isolation — see
+/// `backend/src/istio.rs`. `None` (the default) leaves the whole feature
+/// off: no owner ServiceAccount is ever created, no `AuthorizationPolicy` is
+/// ever created, and launched pods behave exactly as they did before this
+/// existed (any pod in the namespace can reach any other's ClusterIP,
+/// same as today).
+#[derive(Clone, Debug)]
+pub struct IstioConfig {
+    /// Istio's trust domain, e.g. `"cluster.local"` — the first segment of
+    /// every SPIFFE-style principal this feature compares against.
+    pub trust_domain: String,
+    /// The Helve backend's own ServiceAccount name, always allow-listed
+    /// alongside a deployment's owner on every `AuthorizationPolicy` this
+    /// creates — otherwise turning this feature on would also cut off
+    /// Helve's own reverse-proxy (`/proxy/`, `/models/`) traffic into every
+    /// launched pod.
+    pub backend_service_account: String,
+}
+
 /// How many failed logins from one address, within [`LOGIN_FAILURE_WINDOW`],
 /// before further attempts are refused outright.
 const MAX_LOGIN_FAILURES: usize = 10;
@@ -246,6 +265,8 @@ pub struct AppState {
     /// `AppState` as a whole is cloned per-request the way axum's `State`
     /// extractor always does.
     pub oidc: Option<Arc<crate::oidc::Oidc>>,
+    /// `None` = Istio pod-to-pod tenant isolation is off entirely; see [`IstioConfig`].
+    pub istio: Option<IstioConfig>,
     login_throttle: LoginThrottle,
     pods: Arc<RwLock<HashMap<String, PodInfo>>>,
     events: broadcast::Sender<PodEvent>,
@@ -262,6 +283,7 @@ impl AppState {
         home_drives: Option<HomeDrives>,
         ldap: Option<LdapConfig>,
         oidc: Option<Arc<crate::oidc::Oidc>>,
+        istio: Option<IstioConfig>,
     ) -> Self {
         let (events, _) = broadcast::channel(256);
         Self {
@@ -273,6 +295,7 @@ impl AppState {
             home_drives,
             ldap,
             oidc,
+            istio,
             login_throttle: LoginThrottle::default(),
             pods: Arc::new(RwLock::new(HashMap::new())),
             events,

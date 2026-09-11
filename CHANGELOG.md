@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-11
+
+### Added
+
+- **Optional Istio mTLS pod-to-pod tenant isolation** (`ISTIO_ENABLED`/
+  `istio.enabled`, off by default). Closes a network-layer gap Helve's own
+  ownership checks never covered: any pod in the shared namespace could
+  reach any other pod's `ClusterIP` directly, bypassing Helve entirely.
+  When enabled, every launched deployment gets its own owner-scoped
+  ServiceAccount and a per-deployment Istio `AuthorizationPolicy` allowing
+  inbound traffic only from Helve's own backend and that deployment's
+  owner, backed by a namespace-wide `PeerAuthentication` (`STRICT` mTLS)
+  and a namespace-wide deny-all `AuthorizationPolicy`. Requires Istio
+  >= 1.17 already installed and the namespace labeled for sidecar
+  injection — this app never installs or configures Istio itself. See the
+  main README's "Network-layer tenant isolation (Istio mTLS)" and
+  `charts/helve/README.md`'s "Istio pod-to-pod tenant isolation".
+- **A bearer-token reverse proxy, `/models/<username>/<engine>/...`, for
+  reaching Ollama/vLLM/SGLang from API tooling** (a coding assistant, a
+  script) — separate from the existing session-cookie `/proxy/` route,
+  which requires a browser and a Helve login neither of those has. Keyed
+  by owner rather than the deployment's own ever-changing generated name,
+  so the URL is stable enough to hardcode into a tool's config once.
+  vLLM/SGLang reuse the same generated value already shown as their API
+  key; Ollama gets a freshly generated token, closing the original gap
+  that motivated this (Ollama has no env var of its own to carry one).
+  Admin-configurable per template (`engine_slug` + a checkbox on the
+  Templates tab); seeded on for Ollama/vLLM/SGLang. Shown on the Launch
+  tab's success message and a new Pods tab column. See the README's "The
+  bearer-token API proxy (`/models/`)".
+
 ## [0.5.3] - 2026-09-11
 
 ### Added
@@ -490,7 +521,8 @@ own cluster.
   section still listed it as missing, contradicting the security-notes
   section describing the throttle).
 
-[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Techboredom/Helve/releases/tag/v0.6.0
 [0.5.3]: https://github.com/Techboredom/Helve/releases/tag/v0.5.3
 [0.5.2]: https://github.com/Techboredom/Helve/releases/tag/v0.5.2
 [0.5.1]: https://github.com/Techboredom/Helve/releases/tag/v0.5.1

@@ -22,7 +22,13 @@ Tokens.
   themselves; an `admin` sees every pod in the namespace plus an **Owner**
   column showing who launched each one. A **Credential** column shows the
   auto-generated login token/API key for templates that have one,
-  click-to-select for copying. The **first** column, **Access**, shows
+  click-to-select for copying, and (for Ollama/vLLM/SGLang) an **API
+  proxy** column shows the stable `/models/<username>/<engine>/...` URL and
+  bearer token that reach it with no Helve login at all (see "The
+  bearer-token API proxy (`/models/`)" below) — the thing to actually paste
+  into a coding tool's config, since unlike the in-cluster address below it
+  works from outside the cluster too and doesn't depend on the deployment's
+  ever-changing generated name. The **first** column, **Access**, shows
   where a running deployment can actually be reached, in up to three
   forms: for
   proxy-enabled templates (JupyterLab, RStudio) an **Open** link that
@@ -31,13 +37,10 @@ Tokens.
   for a `LoadBalancer` Service that has been assigned an address, a
   **Direct** link to it; and for anything with a Service at all, its
   in-cluster address (`<service>.<namespace>.svc.cluster.local:<port>`)
-  as selectable text. That last one is what the internal templates need —
-  Ollama, vLLM and SGLang are `ClusterIP` with no proxy, and it's the
-  address you point another pod (a coding tool calling an
-  OpenAI-compatible API, say) at. The proxy link can't serve that
-  purpose: it requires an Helve session, which a program doesn't have.
-  A `LoadBalancer` still waiting on an address shows no Direct link
-  rather than a half-formed one. Click a row to open its detail panel: per-container
+  as selectable text — reachable only from another pod, unlike the
+  `/models/` URL above. A `LoadBalancer` still waiting on an address shows
+  no Direct link rather than a half-formed one. Click a row to open its
+  detail panel: per-container
   state and failure reason (`CrashLoopBackOff`, `ImagePullBackOff`, exit
   codes, etc.), recent Kubernetes Events, and a log viewer (container
   picker, tail length, previous-container logs for ones that crashed).
@@ -272,7 +275,10 @@ All endpoints below except `POST /api/login` and static assets require
 either a valid session cookie (401 if missing/expired) or, if no cookie is
 present at all, an `Authorization: Bearer <token>` header naming a valid
 API token (see "Admin API tokens" below) — the ones marked *(admin)*
-additionally require the `admin` role either way (403 otherwise).
+additionally require the `admin` role either way (403 otherwise). The
+`/models/` routes near the bottom are the one exception: they require no
+Helve login or session at all, only a bearer token naming a *deployment* —
+see "The bearer-token API proxy (`/models/`)" below.
 
 - `POST /api/login` — body `{username, password}`; sets the `helve_session` cookie and returns the logged-in `UserInfo` on success, 401 on bad credentials. If the username/password don't match a local account and LDAP is configured, tries LDAP before giving up — see "SSO (OIDC) and LDAP/AD authentication" below.
 - `POST /api/logout` — clears the session (both server-side and the cookie)
@@ -290,14 +296,14 @@ additionally require the `admin` role either way (403 otherwise).
 - `POST /api/tokens` *(admin)* — body `{name}` (a human label, e.g. `"CI automation"`); mints a new API token authenticating as the calling admin. Response is `{id, name, token, created_at}` — `token` is the raw value, and this is the only time it's ever returned; only its SHA-256 hash is stored. See "Admin API tokens" below.
 - `GET /api/tokens` *(admin)* — lists the caller's own tokens: `{id, name, created_at, last_used_at}` — never another admin's tokens, never a raw value again.
 - `DELETE /api/tokens/{id}` *(admin)* — revokes one of the caller's own tokens, effective immediately. 400 if it doesn't exist or belongs to someone else (same error either way, so this can't be used to probe another account's token ids).
-- `GET /api/pods` — JSON snapshot of the current pods in the watched namespace, filtered by role: a `user` only gets pods whose `helve.io/owner` label matches their own username, an `admin` gets all of them (each with its `owner` field populated). Pods for templates with a `secret_env_key` also carry a `credential: {env_key, value}` looked up from `deployment_secrets`, and pods for proxy-enabled templates carry a `proxy_path: "/proxy/<name>/"`.
+- `GET /api/pods` — JSON snapshot of the current pods in the watched namespace, filtered by role: a `user` only gets pods whose `helve.io/owner` label matches their own username, an `admin` gets all of them (each with its `owner` field populated). Pods for templates with a `secret_env_key` also carry a `credential: {env_key, value}` looked up from `deployment_secrets`, pods for proxy-enabled templates carry a `proxy_path: "/proxy/<name>/"`, and pods for `api_proxy_enabled` templates carry a `models_access: {url, token}` — see "The bearer-token API proxy (`/models/`)" below.
 - `GET /ws` — WebSocket; sends a full snapshot on connect (same per-role filtering and credential enrichment as `GET /api/pods`), then `upsert`/`delete` events as pods change, filtered the same way per-connection
 - `GET /api/images` — JSON list of catalog entries from the `images` table (id, name, image, description)
 - `GET /api/templates` — JSON list of templates (any logged-in role — needed for the Launch tab's dropdown)
-- `POST /api/templates` / `PUT /api/templates/{id}` *(admin)* — create/update a template. Body is a `TemplateEntry` minus `id`: `{name, image, container_port, cpu_request, cpu_limit, memory_request, memory_limit, accelerator_type, accelerator_count, env, args, model, context_length, quantization, served_model_name, gpu_memory_utilization, dtype, volume_claim_name, volume_mount_path, volume_sub_path, notes, secret_env_key, proxy_enabled, strip_prefix, public_service, readiness_path}` — only `name`/`image` are required, everything else defaults to empty/`null`/`false`/`true`. `secret_env_key`, if set, is the env var name (e.g. `JUPYTER_TOKEN`) that Launch should auto-generate instead of showing as an editable field — a proxy-enabled template doesn't need one (RStudio has none). `strip_prefix` only matters when `proxy_enabled` is set (see "the reverse proxy" above). `public_service` is independent of `proxy_enabled` — set it to `false` either for a proxied app with no auth of its own (Helve's login becomes the only way in, e.g. RStudio), or for a plain internal-only service consumed from inside the cluster (e.g. an LLM engine other in-cluster tooling talks to directly, with no browser login to bypass and no proxy involved at all). `model`/`context_length`/`quantization`/`served_model_name`/`gpu_memory_utilization`/`dtype`/`volume_claim_name`/`volume_mount_path`/`volume_sub_path` are described under `POST /api/deployments` below — the template versions are just the pre-filled defaults; empty string (or `null` for `context_length`/`gpu_memory_utilization`) means unset, same convention as `cpu_request` and friends.
+- `POST /api/templates` / `PUT /api/templates/{id}` *(admin)* — create/update a template. Body is a `TemplateEntry` minus `id`: `{name, image, container_port, cpu_request, cpu_limit, memory_request, memory_limit, accelerator_type, accelerator_count, env, args, model, context_length, quantization, served_model_name, gpu_memory_utilization, dtype, volume_claim_name, volume_mount_path, volume_sub_path, notes, secret_env_key, proxy_enabled, strip_prefix, public_service, readiness_path, engine_slug, api_proxy_enabled}` — only `name`/`image` are required, everything else defaults to empty/`null`/`false`/`true`. `secret_env_key`, if set, is the env var name (e.g. `JUPYTER_TOKEN`) that Launch should auto-generate instead of showing as an editable field — a proxy-enabled template doesn't need one (RStudio has none). `strip_prefix` only matters when `proxy_enabled` is set (see "the reverse proxy" above). `public_service` is independent of `proxy_enabled` — set it to `false` either for a proxied app with no auth of its own (Helve's login becomes the only way in, e.g. RStudio), or for a plain internal-only service consumed from inside the cluster (e.g. an LLM engine other in-cluster tooling talks to directly, with no browser login to bypass and no proxy involved at all). `model`/`context_length`/`quantization`/`served_model_name`/`gpu_memory_utilization`/`dtype`/`volume_claim_name`/`volume_mount_path`/`volume_sub_path` are described under `POST /api/deployments` below — the template versions are just the pre-filled defaults; empty string (or `null` for `context_length`/`gpu_memory_utilization`) means unset, same convention as `cpu_request` and friends. `engine_slug`/`api_proxy_enabled` are described under `POST /api/deployments` below too — `api_proxy_enabled` requires `engine_slug` to be a non-empty lowercase-alphanumeric-and-hyphen slug (400 otherwise).
 - `DELETE /api/templates/{id}` *(admin)* — delete a template
 - `GET /api/pvcs` — every `PersistentVolumeClaim` already existing in the watched namespace, `{name, capacity}` (`capacity` `null` if not yet Bound). Any logged-in user, same visibility as the Images catalog. Backs the Launch/Templates forms' storage-mount fields — Helve never creates or deletes a PVC itself, only mounts one that's already there (see "vLLM/SGLang: model, context length, quantization, storage, and readiness" below).
-- `POST /api/deployments` — there's no `name` field: the backend generates one, `<username>-<instance type>-<6-char random suffix>`, truncating the instance-type segment as needed to stay within Kubernetes' 63-character name limit. "Instance type" is a slugified `template_name` when given, else a slug of `image`'s repository component (e.g. `nginx:alpine` → `nginx`, `jupyter/base-notebook` → `base-notebook`). The random suffix means a 409 from Kubernetes here would mean that exact suffix collided for you, which should essentially never happen. Every field below that echoes or embeds "the deployment's name" (`{{name}}` substitution, `proxy_path`, `service_name`) means this generated name. Creates a `Deployment` in the watched namespace (labeled `helve.io/owner: <your username>`), and if `container_port` is set, also a Service exposing it — `LoadBalancer` (public, external IP assigned by whatever your cluster's load-balancer implementation is) if `public_service` is true, `ClusterIP`-only otherwise. If the field is omitted this API defaults it to `true`; the Launch tab's own form, in contrast, now defaults its checkbox to off (see "Status & known limitations") — a raw API caller that omits the field still gets the old public-by-default behavior. Body: `{template_name, image, replicas, cpu_request, cpu_limit, memory_request, memory_limit, accelerator_type, accelerator_count, container_port, env, args, model, context_length, quantization, served_model_name, gpu_memory_utilization, dtype, readiness_path, volume_claim_name, volume_mount_path, volume_sub_path, generate_secret_for, enable_proxy, strip_prefix, public_service}` — everything except `image`/`replicas` is optional; `env` is `[[key, value], ...]` pairs (entries with an empty value are dropped, so an image's own default behavior — e.g. an auto-generated password logged at startup — still applies unless you set one); `args` is a list of container command-line arguments — `{{name}}`, `{{proxy_root_path}}`, and `{{accelerator_count}}` are always substituted (the last defaulting to `1` if unset). `{{proxy_root_path}}` is the URL prefix the app is served under, and exists so a template doesn't have to hardcode one: it resolves to `/` when per-deployment proxy origins are configured (the app owns a whole origin and sits at its root) and to `/proxy/<name>/` when they aren't. This is what JupyterLab's `--ServerApp.base_url` and RStudio's `www-root-path` should be set to; hardcoding `/proxy/<name>/` instead breaks the app on a per-deployment origin, and does so in a way that looks like the app itself is broken — RStudio 404s its own redirect, JupyterLab registers routes under a prefix no request carries. `{{model}}`, `{{context_length}}`, `{{quantization}}`, `{{served_model_name}}`, `{{gpu_memory_utilization}}`, and `{{dtype}}` are each substituted from the like-named field *if set* — if that field is unset, the whole `args` line containing the placeholder is dropped entirely rather than sending a broken `--flag=` with nothing after the `=`. `model` is just a plain string, whether it's a Hugging Face ID or a local path under `volume_mount_path`; `context_length` must be positive if set; `gpu_memory_utilization` must be in `(0.0, 1.0]` if set; `quantization`/`served_model_name`/`dtype` are free text. `readiness_path`, if set, attaches an HTTP `readinessProbe` to the container at that path against `container_port` (400 if `container_port` isn't also set) — see "vLLM/SGLang: model, context length, quantization, storage, and readiness" below. `volume_claim_name`, if set, mounts that existing `PersistentVolumeClaim` at `volume_mount_path` (both required together; 400 if no such claim exists), optionally scoped to `volume_sub_path` within it; `generate_secret_for`, if set to an env var name, generates a random value for it (overriding anything with that key in `env`) and stores it in `deployment_secrets`; `enable_proxy`, if `true`, requires `container_port` to be set (400 otherwise) and makes the app also reachable via `GET/POST/... /proxy/<name>/...`, with `strip_prefix` controlling how that route forwards paths (see "the reverse proxy" above); `public_service`, independent of `enable_proxy`, controls whether the Service is a public `LoadBalancer` or `ClusterIP`-only. Response adds `name` (the generated one), `service_name`/`container_port` (both `null` if no port was given), `secret_value` (the generated value, or `null`), `proxy_path` (`"/proxy/<name>/"` if `enable_proxy` was set, else `null`), and `public_service` (echoes the request, so the frontend knows whether to mention an external IP).
+- `POST /api/deployments` — there's no `name` field: the backend generates one, `<username>-<instance type>-<6-char random suffix>`, truncating the instance-type segment as needed to stay within Kubernetes' 63-character name limit. "Instance type" is a slugified `template_name` when given, else a slug of `image`'s repository component (e.g. `nginx:alpine` → `nginx`, `jupyter/base-notebook` → `base-notebook`). The random suffix means a 409 from Kubernetes here would mean that exact suffix collided for you, which should essentially never happen. Every field below that echoes or embeds "the deployment's name" (`{{name}}` substitution, `proxy_path`, `service_name`) means this generated name. Creates a `Deployment` in the watched namespace (labeled `helve.io/owner: <your username>`), and if `container_port` is set, also a Service exposing it — `LoadBalancer` (public, external IP assigned by whatever your cluster's load-balancer implementation is) if `public_service` is true, `ClusterIP`-only otherwise. If the field is omitted this API defaults it to `true`; the Launch tab's own form, in contrast, now defaults its checkbox to off (see "Status & known limitations") — a raw API caller that omits the field still gets the old public-by-default behavior. Body: `{template_name, image, replicas, cpu_request, cpu_limit, memory_request, memory_limit, accelerator_type, accelerator_count, container_port, env, args, model, context_length, quantization, served_model_name, gpu_memory_utilization, dtype, readiness_path, volume_claim_name, volume_mount_path, volume_sub_path, generate_secret_for, enable_proxy, strip_prefix, public_service, engine_slug, api_proxy_enabled}` — everything except `image`/`replicas` is optional; `env` is `[[key, value], ...]` pairs (entries with an empty value are dropped, so an image's own default behavior — e.g. an auto-generated password logged at startup — still applies unless you set one); `args` is a list of container command-line arguments — `{{name}}`, `{{proxy_root_path}}`, and `{{accelerator_count}}` are always substituted (the last defaulting to `1` if unset). `{{proxy_root_path}}` is the URL prefix the app is served under, and exists so a template doesn't have to hardcode one: it resolves to `/` when per-deployment proxy origins are configured (the app owns a whole origin and sits at its root) and to `/proxy/<name>/` when they aren't. This is what JupyterLab's `--ServerApp.base_url` and RStudio's `www-root-path` should be set to; hardcoding `/proxy/<name>/` instead breaks the app on a per-deployment origin, and does so in a way that looks like the app itself is broken — RStudio 404s its own redirect, JupyterLab registers routes under a prefix no request carries. `{{model}}`, `{{context_length}}`, `{{quantization}}`, `{{served_model_name}}`, `{{gpu_memory_utilization}}`, and `{{dtype}}` are each substituted from the like-named field *if set* — if that field is unset, the whole `args` line containing the placeholder is dropped entirely rather than sending a broken `--flag=` with nothing after the `=`. `model` is just a plain string, whether it's a Hugging Face ID or a local path under `volume_mount_path`; `context_length` must be positive if set; `gpu_memory_utilization` must be in `(0.0, 1.0]` if set; `quantization`/`served_model_name`/`dtype` are free text. `readiness_path`, if set, attaches an HTTP `readinessProbe` to the container at that path against `container_port` (400 if `container_port` isn't also set) — see "vLLM/SGLang: model, context length, quantization, storage, and readiness" below. `volume_claim_name`, if set, mounts that existing `PersistentVolumeClaim` at `volume_mount_path` (both required together; 400 if no such claim exists), optionally scoped to `volume_sub_path` within it; `generate_secret_for`, if set to an env var name, generates a random value for it (overriding anything with that key in `env`) and stores it in `deployment_secrets`; `enable_proxy`, if `true`, requires `container_port` to be set (400 otherwise) and makes the app also reachable via `GET/POST/... /proxy/<name>/...`, with `strip_prefix` controlling how that route forwards paths (see "the reverse proxy" above); `public_service`, independent of `enable_proxy`, controls whether the Service is a public `LoadBalancer` or `ClusterIP`-only. `engine_slug` is a lowercase-alphanumeric-and-hyphen identifier for the engine (e.g. `"ollama"`, `"vllm"`, `"sglang"`) used as a path segment; `api_proxy_enabled`, if `true`, requires both `container_port` and a non-empty `engine_slug` (400 otherwise) and generates a bearer token making the app also reachable via `/models/<username>/<engine_slug>/...` — see "The bearer-token API proxy (`/models/`)" below; this is independent of `enable_proxy`/`proxy_path` and can be set alongside or instead of it. Response adds `name` (the generated one), `service_name`/`container_port` (both `null` if no port was given), `secret_value` (the generated value, or `null`), `proxy_path` (`"/proxy/<name>/"` if `enable_proxy` was set, else `null`), `models_access` (`{url, token}` if `api_proxy_enabled` was set, else `null`), and `public_service` (echoes the request, so the frontend knows whether to mention an external IP).
 - `GET /api/deployments/{name}` — current editable state of a Deployment you own (or, for an admin, any Deployment): `{name, replicas, cpu_request, cpu_limit, memory_request, memory_limit, env, generated_secret_key}`. `env` excludes the auto-generated secret's entry, if any — its key is reported separately as `generated_secret_key` rather than its (regeneratable) value, since it's shown read-only rather than as an editable row. 403 if you don't own it, 404 if it doesn't exist. Backs the Pods tab's manage panel.
 - `PUT /api/deployments/{name}` — scales and/or updates resources/env on a Deployment you own (or, for an admin, any Deployment). Body: `{replicas, cpu_request, cpu_limit, memory_request, memory_limit, env}`. Image, container port, accelerator, and args are fixed at launch time — changing those is a delete + relaunch, not an edit. An existing auto-generated secret's env var is carried through untouched regardless of what's submitted in `env` — edits never regenerate or require resubmitting it, since a client may already be using that value. Same validation as create (quantities, env keys, non-negative replicas). Returns the same shape as `GET`.
 - `DELETE /api/deployments/{name}` — deletes a Deployment you own (or, for an admin, any Deployment), its Service if it has one, and its `deployment_secrets` row (if any) — the one place in the app that actually cleans up a generated credential rather than leaving it to outlive the deployment that used it. 403 if you don't own it.
@@ -305,6 +311,7 @@ additionally require the `admin` role either way (403 otherwise).
 - `POST /api/deployments/{name}/rollback` — reverts the Deployment to its previous revision (image, resources, env, args — everything), read from the owning `ReplicaSet`'s revision history, same mechanism as `kubectl rollout undo`. No request body. 400 if there's no previous revision; 403 if you don't own it. Quota is re-checked the same way `PUT` is. Returns the same shape as `GET /api/deployments/{name}`.
 - `POST /api/deployments/{name}/regenerate-secret` — issues a fresh value for the Deployment's auto-generated credential, updates `deployment_secrets` and the live container's env, and restarts the pod (same mechanism as `restart` above) so a running pod is never left holding a value Helve itself no longer knows. No request body; response is `{secret_value}`. 400 if this Deployment has no auto-generated credential; 403 if you don't own it.
 - `ANY /proxy/{deployment_name}`, `ANY /proxy/{deployment_name}/`, `ANY /proxy/{deployment_name}/{*rest}` — reverse-proxies into a proxy-enabled deployment's pod (`backend/src/proxy.rs`), injecting its generated credential (if any) as the appropriate auth header so there's no login prompt. The first two (bare path / trailing slash, no further segment) are what every "Open" link actually points at; the wildcard one handles everything else the app itself requests once loaded. 403 if you're not that deployment's owner (or an admin); 400 if the deployment isn't proxy-enabled; 502 if the connection to its pod fails or times out (5s). Handles WebSocket upgrades transparently (needed for JupyterLab's kernel connections). See "Ownership, auto-generated credentials, and the reverse proxy" below.
+- `ANY /models/{username}/{engine_slug}`, `ANY /models/{username}/{engine_slug}/`, `ANY /models/{username}/{engine_slug}/{*rest}` — the bearer-token reverse proxy for API tooling (`backend/src/models_proxy.rs`); no Helve login or session cookie of any kind, purely `Authorization: Bearer <token>`. 400 if that header is missing/malformed, or if the deployment serves a specific model and the path's leading segment doesn't name it; 404 ("no such model deployment", deliberately not distinguishing a bad token from a bad path) if the token doesn't match any deployment, or matches one whose owner/engine doesn't match the path; 502 on the same pod-connectivity failures `/proxy/` can hit. See "The bearer-token API proxy (`/models/`)" below.
 - `GET /api/pods/{name}/logs?container=&tail_lines=&previous=` — plain-text container logs (`container` defaults to the pod's only container if it has one; `tail_lines` defaults to 500; `previous=true` gets the last terminated instance's logs, for a crashed container)
 - `GET /api/pods/{name}/events` — JSON list of Kubernetes Events involving that pod (`type_`, `reason`, `message`, `count`, `last_seen`), most recent first — note the apiserver's default Event TTL is short (commonly ~1h), so older pods often have none left
 - `GET /api/quota/me` — the caller's own effective quota (their `user_quotas` override if they have one, else the global default), current usage, `expose_resource_requests`, and `allow_custom_images`. Always unlimited limits and `allow_custom_images: true` for an admin (exempt from both enforcement mechanisms), though `expose_resource_requests` still applies to everyone. Backs the Launch tab and the Pods tab's manage panel.
@@ -365,6 +372,8 @@ CREATE TABLE templates (
     proxy_enabled BOOLEAN NOT NULL DEFAULT false,   -- also reachable via Helve's /proxy/<name>/
     strip_prefix BOOLEAN NOT NULL DEFAULT false,    -- see "the reverse proxy" below
     public_service BOOLEAN NOT NULL DEFAULT true,   -- LoadBalancer (true) vs ClusterIP-only (false)
+    engine_slug TEXT,                               -- e.g. "ollama"; see "the bearer-token API proxy" below
+    api_proxy_enabled BOOLEAN NOT NULL DEFAULT false, -- also reachable via Helve's /models/<user>/<engine>/
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
@@ -375,7 +384,10 @@ delete them from the Templates tab like any other row. JupyterLab
 (`JUPYTER_TOKEN`) and vLLM (`VLLM_API_KEY`) are seeded with a
 `secret_env_key`; Ollama, SGLang, and RStudio aren't (Ollama and SGLang have
 no auth mechanism at all; RStudio runs with its own auth fully disabled —
-see below). Both JupyterLab and RStudio are seeded `proxy_enabled`.
+see below). Both JupyterLab and RStudio are seeded `proxy_enabled`. Ollama,
+vLLM, and SGLang are seeded `api_proxy_enabled` with `engine_slug` set to
+`"ollama"`/`"vllm"`/`"sglang"` respectively — see "The bearer-token API
+proxy (`/models/`)" below.
 
 `public_service` is a separate, admin-only toggle available on every
 template — including Ollama/vLLM/SGLang, which have no `proxy_enabled` at
@@ -518,8 +530,17 @@ CREATE TABLE deployment_secrets (
     proxy_enabled BOOLEAN NOT NULL DEFAULT false,
     container_port INTEGER,
     strip_prefix BOOLEAN NOT NULL DEFAULT false,
+    proxy_token TEXT,        -- bearer token for /models/, if api_proxy_enabled
+    engine_slug TEXT,        -- e.g. "ollama"; see "the bearer-token API proxy" below
+    model_slug TEXT,         -- slugified `model`, if set; NULL otherwise
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- proxy_token is looked up directly (a unique index backs it), the same
+-- plaintext-equality convention proxy_auth_tokens/proxy_sessions already
+-- use — not the hash-and-forget api_tokens pattern, since secret_value
+-- here is already persistently redisplayed on the Pods tab.
+CREATE UNIQUE INDEX deployment_secrets_proxy_token_idx
+    ON deployment_secrets (proxy_token) WHERE proxy_token IS NOT NULL;
 ```
 
 The value is shown once in the Launch success message and persistently in
@@ -601,17 +622,153 @@ first, then letting `/init` run normally, is what gets `www-root-path` set
 without needing a mounted config file or overriding the image's own init
 logic.
 
-vLLM is intentionally never proxied: its `VLLM_API_KEY` is meant for
-scripted API clients setting their own `Authorization: Bearer <key>`
-header, not a browser session — it already matches real
-bearer-token-via-header usage without needing a proxy in front of it, and
-forcing it through Helve's cookie-based login would only get in the way of
-automation.
+vLLM (and Ollama, SGLang) are intentionally never proxied through this
+session-cookie route: `VLLM_API_KEY` is meant for scripted API clients
+setting their own `Authorization: Bearer <key>` header, not a browser
+session, and forcing it through Helve's cookie-based login would only get
+in the way of automation. That's exactly what the separate bearer-token
+`/models/` proxy below is for.
 
 Each proxied HTTP request currently opens a fresh TCP connection and
 HTTP/1.1 handshake to the pod rather than reusing a pooled connection —
 correct and simple, but adds latency per request; pooling is a reasonable
 future optimization, not a correctness issue.
+
+## Network-layer tenant isolation (Istio mTLS)
+
+Everything in "Ownership, auto-generated credentials, and the reverse
+proxy" above is enforced at the HTTP layer, by Helve itself, on the routes
+Helve itself serves (`/proxy/`, `/models/`). It does nothing about the
+network layer underneath: every launched pod lands in the same shared
+namespace, and by default any pod in that namespace — another tenant's
+JupyterLab kernel, a coding agent hitting Ollama — can reach any other
+pod's `ClusterIP` directly, skipping Helve's ownership check entirely.
+That gap is closed, optionally, with Istio service-mesh mTLS +
+`AuthorizationPolicy` (`backend/src/istio.rs`), off by default behind
+`ISTIO_ENABLED`/`istio.enabled` (see `charts/helve/README.md`'s "Istio
+pod-to-pod tenant isolation" for the operator-facing setup, including the
+manual `istio-injection=enabled` namespace label this app never applies
+itself).
+
+When on: every owner gets their own, lazily-created, unprivileged
+ServiceAccount (`owner-<username>`, reused across every deployment they
+launch — Istio identifies mTLS peers by ServiceAccount, not by the
+`helve.io/owner` label above), and every launched deployment gets a
+matching `AuthorizationPolicy` (Istio's `security.istio.io/v1` CRD,
+created via a `kube::api::DynamicObject` since this codebase has no typed
+binding for it) scoped to just that pod, allowing inbound traffic only
+from Helve's own backend principal and that deployment's owner's. Since
+this is enforced at *every* pod's own sidecar on the inbound side, it
+blocks both directions symmetrically without a separate egress-side
+control: Alice's pod can't reach Bob's (Bob's own policy denies it) and
+Bob's can't reach Alice's (Alice's denies it). A namespace-wide
+`PeerAuthentication` additionally requires `STRICT` mTLS for every
+sidecar-injected workload, and a namespace-wide deny-all
+`AuthorizationPolicy` backstops any pod that somehow ends up without its
+own per-deployment one.
+
+**What this covers**: pod-to-pod traffic between two different owners'
+launched pods within this one namespace — exactly the gap described
+above. **What it explicitly does not cover**: a pod's egress to the
+public internet, to other namespaces, or to the Kubernetes API — none of
+that is restricted by anything here. An egress-side allowlist (an Istio
+`Sidecar` resource capping what a launched pod can reach on the internet)
+was considered and deliberately left out of this pass: it would need
+per-template maintenance (Hugging Face, PyPI, apt mirrors, arbitrary
+custom images) and risks silently breaking legitimate functionality,
+for a goal ("east-west between tenants") the ingress-side policy above
+already fully covers on its own.
+
+Creating the `AuthorizationPolicy` is not best-effort: a launch whose
+policy creation fails rolls back the Deployment (and Service, if one was
+created) rather than leaving an unprotected pod running, since a pod
+missing its own isolation policy would silently defeat the entire
+feature. Turning `istio.enabled` on protects newly launched deployments
+only — see the chart README's upgrade note for what that means for
+anything already running.
+
+## The bearer-token API proxy (`/models/`)
+
+The reverse proxy above requires a browser: it's authenticated by a Helve
+session cookie and (with `PROXY_BASE_DOMAIN` set) a redirect handshake onto
+a per-deployment origin. That's the right model for JupyterLab/RStudio, but
+it's unusable for API tooling — a coding assistant, a script, a CI job —
+which can't click through a login flow and has nowhere to keep a cookie
+jar. `/models/{username}/{engine_slug}/{*rest}` (`backend/src/models_proxy.rs`)
+is a second, independent reverse proxy built for exactly that case:
+
+- **Authenticated purely by `Authorization: Bearer <token>`.** No cookies,
+  no session, no Helve login at all for the request itself — the token is
+  looked up directly against `deployment_secrets.proxy_token` (a unique
+  index backs it). Present the wrong token, or none, and you get a generic
+  404 ("no such model deployment") rather than a 401/403 — this route
+  deliberately never confirms or denies that a given username/engine/model
+  combination *exists* to an unauthenticated caller.
+- **Keyed by owner, not by deployment name.** A launched deployment's name
+  carries a random 6-character suffix that changes on every relaunch;
+  keying the URL off `{username}/{engine_slug}` instead gives something
+  stable enough to hardcode into a tool's config once and leave alone.
+  `engine_slug` (an admin-set field on the template, e.g. `"ollama"`,
+  `"vllm"`, `"sglang"`) disambiguates concurrent engines for the same user;
+  when the deployment's own `model` field is set, a further `model_slug`
+  segment (a slugified form of it, e.g. `meta-llama/Llama-3-8B` →
+  `meta-llama-llama-3-8b`) disambiguates concurrent same-engine deployments
+  serving different models, so a user with enough quota can run two vLLM
+  instances on two different models at once without their paths colliding.
+- **The token is the real authority; the path is only a consistency
+  check.** Resolution is always "look up which deployment this bearer token
+  belongs to," the same way `Authorization: Bearer <api-token>` resolves to
+  a user account for the rest of the API (`auth::user_from_api_token`). The
+  path's `{username}`/`{engine_slug}` (and, if set, the leading `model_slug`
+  segment of `{*rest}`) are then checked against that deployment's own
+  recorded values and rejected (404, or 400 for a missing/wrong model
+  segment) on mismatch — this only catches pasting the right token under
+  the wrong path, or vice versa; it isn't itself a security boundary.
+- **One generated secret can serve double duty.** For vLLM/SGLang, the same
+  random value already generated for `VLLM_API_KEY`/its equivalent becomes
+  the `/models/` bearer token too — nothing about the credential shown on
+  the Pods tab changes, it just now also works as this URL's token, and
+  vLLM/SGLang's own `--api-key` check (if configured) happens to accept the
+  same value for free. Ollama gets a freshly generated token with no env
+  var attached, since Ollama has no such flag to begin with — this closes
+  the original gap that motivated this feature ("give Ollama a token the
+  way vLLM has one").
+- **The caller's `Authorization` header is forwarded through unchanged**,
+  not stripped and replaced the way `/proxy/` injects its own credential —
+  since it's the very token this route just authenticated with, forwarding
+  it downstream is free defense-in-depth for vLLM/SGLang's own `--api-key`
+  check, and Ollama simply ignores it. No Helve session cookie ever enters
+  the picture in either direction.
+- **Always root-relative** (`/models/<username>/<engine_slug>/...`) — unlike
+  `/proxy/`, this route needs no per-deployment origin, since there's no
+  session cookie whose scope needs limiting.
+- **No token-specific rate limiting** beyond the token's own entropy
+  (48 random alphanumeric characters via the same `generate_token()` every
+  other bearer-token class in this app uses — session tokens, API tokens,
+  proxy handoff tokens) — matching the existing convention that only
+  `POST /api/login` gets a throttle (`state::LoginThrottle`), since
+  password hashing, not token lookup, is the expensive step worth guarding
+  there.
+
+An admin turns this on per template via **Templates → Engine slug** +
+**"Also reachable via Helve's bearer-token `/models/...` route"** — seeded
+on for Ollama/vLLM/SGLang by `backend/migrations/0028_add_models_proxy.sql`,
+with `engine_slug` set to `"ollama"`/`"vllm"`/`"sglang"` respectively. Like
+every other template-default change in this app, that migration only
+touches the `templates` table — an already-launched deployment doesn't
+retroactively gain a `/models/` URL or token; relaunch (or a fresh launch)
+picks it up. Once running, the URL and token are shown on the Launch tab's
+success message and persistently on the Pods tab (a new column, next to
+Credential), the same visibility rules as any other stored credential.
+
+Nothing here changes network exposure on its own: an admin can now
+optionally also flip `public_service = false` on the Ollama/vLLM/SGLang
+templates to make `/models/` the *only* way to reach them (instead of a
+public `LoadBalancer` or a bare `ClusterIP` other in-cluster tooling can
+already reach directly) — but that's a separate, deliberate choice to make
+afterward, not something this feature does automatically, since silently
+changing what's reachable on an existing deployment is exactly the kind of
+surprise this app tries to avoid elsewhere too.
 
 ## Managing running deployments
 
