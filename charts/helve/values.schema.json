@@ -134,6 +134,34 @@
         }
       }
     },
+    "ldap": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "LDAP/Active Directory login, tried whenever a login isn't a valid local password. Local password login always stays available alongside it." },
+        "url": { "type": "string", "description": "e.g. ldaps://dc1.example.com. Required when enabled." },
+        "bindDn": { "type": "string", "description": "DN of the service account Helve binds as to search the directory. Required when enabled." },
+        "existingSecret": { "type": "string", "description": "Secret (key: existingSecretKey) holding bindDn's password. Required when enabled." },
+        "existingSecretKey": { "type": "string" },
+        "baseDn": { "type": "string", "description": "Base DN to search under. Required when enabled." },
+        "userFilter": { "type": "string", "description": "e.g. \"(uid={username})\" or \"(sAMAccountName={username})\". Required when enabled." },
+        "adminGroupDn": { "type": "string", "description": "DN of a group whose membership maps to the admin role, re-checked on every login. Empty means no group mapping." },
+        "autoProvision": { "type": "boolean", "description": "Whether a first-time LDAP login with no matching local account creates one automatically." }
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "OIDC (SSO) login: an independent, simultaneously-usable alternative to local password and LDAP login." },
+        "issuerUrl": { "type": "string", "description": "Required when enabled." },
+        "clientId": { "type": "string", "description": "Required when enabled." },
+        "existingSecret": { "type": "string", "description": "Secret (key: existingSecretKey) holding the OIDC client secret. Required when enabled." },
+        "existingSecretKey": { "type": "string" },
+        "usernameClaim": { "type": "string", "description": "ID token claim to read the Helve username from." },
+        "groupsClaim": { "type": "string", "description": "ID token claim carrying group membership, read as a JSON array of strings." },
+        "adminGroup": { "type": "string", "description": "A value in groupsClaim that maps to the admin role, re-checked on every login. Empty means no group mapping." },
+        "autoProvision": { "type": "boolean", "description": "Whether a first-time SSO login with no linked local account creates one automatically." }
+      }
+    },
     "adminBootstrap": {
       "type": "object",
       "properties": {

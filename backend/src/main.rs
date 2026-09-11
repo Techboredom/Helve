@@ -4,7 +4,9 @@ mod error;
 mod events;
 mod groups;
 mod images;
+mod ldap;
 mod logs;
+mod oidc;
 mod proxy;
 mod quota;
 mod resources;
@@ -126,6 +128,87 @@ struct Args {
         conflicts_with_all = ["home_drives_host_base_path", "home_drives_storage_class"]
     )]
     home_drives_shared_claim: Option<String>,
+
+    /// LDAP/Active Directory server URL, e.g. "ldaps://dc1.example.com".
+    /// Setting this (and the four LDAP flags below it) turns on LDAP login
+    /// as a fallback whenever a username isn't a valid local-password
+    /// login — local password login always stays available alongside it.
+    /// A plain "ldap://" URL is warned about at startup: the bind password
+    /// and directory contents then travel unencrypted unless StartTLS is
+    /// negotiated out of band.
+    #[arg(long, env = "LDAP_URL")]
+    ldap_url: Option<String>,
+
+    /// DN of the service account Helve binds as to search the directory
+    /// for a user's DN — needs no privileges beyond reading it. Required
+    /// alongside `--ldap-url`.
+    #[arg(long, env = "LDAP_BIND_DN")]
+    ldap_bind_dn: Option<String>,
+
+    /// Password for `--ldap-bind-dn`. Required alongside `--ldap-url`.
+    #[arg(long, env = "LDAP_BIND_PASSWORD")]
+    ldap_bind_password: Option<String>,
+
+    /// Base DN to search under for a matching user, e.g.
+    /// "ou=people,dc=example,dc=com". Required alongside `--ldap-url`.
+    #[arg(long, env = "LDAP_BASE_DN")]
+    ldap_base_dn: Option<String>,
+
+    /// LDAP search filter used to find a user's DN, with "{username}"
+    /// substituted for the submitted username — e.g. "(uid={username})"
+    /// for OpenLDAP, "(sAMAccountName={username})" for Active Directory.
+    /// Required alongside `--ldap-url`.
+    #[arg(long, env = "LDAP_USER_FILTER")]
+    ldap_user_filter: Option<String>,
+
+    /// DN of a group whose membership maps to the admin role. Checked on
+    /// every LDAP login, not just the first — the directory becomes the
+    /// source of truth for this account's role once set, overriding a
+    /// manual change made from the Users tab.
+    #[arg(long, env = "LDAP_ADMIN_GROUP_DN")]
+    ldap_admin_group_dn: Option<String>,
+
+    /// Whether a first-time LDAP login with no matching local account
+    /// creates one automatically. Set to false to require an admin to
+    /// pre-create the account instead.
+    #[arg(long, env = "LDAP_AUTO_PROVISION", default_value_t = true)]
+    ldap_auto_provision: bool,
+
+    /// OIDC issuer URL for SSO login, e.g. "https://accounts.example.com".
+    /// Setting this (and the two client flags below it) turns on an SSO
+    /// button on the login page, alongside local password and (if
+    /// configured) LDAP login. Requires `--app-origin` (used to build the
+    /// callback URL registered with the IdP).
+    #[arg(long, env = "OIDC_ISSUER_URL", requires = "app_origin")]
+    oidc_issuer_url: Option<String>,
+
+    /// OIDC client ID. Required alongside `--oidc-issuer-url`.
+    #[arg(long, env = "OIDC_CLIENT_ID")]
+    oidc_client_id: Option<String>,
+
+    /// OIDC client secret. Required alongside `--oidc-issuer-url`.
+    #[arg(long, env = "OIDC_CLIENT_SECRET")]
+    oidc_client_secret: Option<String>,
+
+    /// ID token claim to read the Helve username from.
+    #[arg(long, env = "OIDC_USERNAME_CLAIM", default_value = "preferred_username")]
+    oidc_username_claim: String,
+
+    /// ID token claim carrying group membership, read as a JSON array of strings.
+    #[arg(long, env = "OIDC_GROUPS_CLAIM", default_value = "groups")]
+    oidc_groups_claim: String,
+
+    /// A value in `--oidc-groups-claim` that maps to the admin role,
+    /// re-checked on every login the same way `--ldap-admin-group-dn` is.
+    #[arg(long, env = "OIDC_ADMIN_GROUP")]
+    oidc_admin_group: Option<String>,
+
+    /// Whether a first-time SSO login with no linked local account creates
+    /// one automatically. Set to false to require an admin to pre-create
+    /// the account instead (matched by `--oidc-username-claim` on its
+    /// first login, then linked by subject from then on).
+    #[arg(long, env = "OIDC_AUTO_PROVISION", default_value_t = true)]
+    oidc_auto_provision: bool,
 }
 
 #[tokio::main]
@@ -223,7 +306,62 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let state = AppState::new(args.namespace.clone(), client.clone(), pg, app_origin, proxy_origin, home_drives);
+    // `requires = "app_origin"` on --oidc-issuer-url means clap already
+    // guarantees app_origin is set whenever OIDC is; the remaining shapes
+    // (all three OIDC flags set, or none) aren't expressible with clap
+    // attributes alone and are checked here instead, matching the
+    // home_drives match above.
+    let ldap = match (&args.ldap_url, &args.ldap_bind_dn, &args.ldap_bind_password, &args.ldap_base_dn, &args.ldap_user_filter) {
+        (None, None, None, None, None) => None,
+        (Some(url), Some(bind_dn), Some(bind_password), Some(base_dn), Some(user_filter)) => Some(state::LdapConfig {
+            url: url.clone(),
+            bind_dn: bind_dn.clone(),
+            bind_password: bind_password.clone(),
+            base_dn: base_dn.clone(),
+            user_filter: user_filter.clone(),
+            admin_group_dn: args.ldap_admin_group_dn.clone(),
+            auto_provision: args.ldap_auto_provision,
+        }),
+        _ => anyhow::bail!(
+            "LDAP_URL, LDAP_BIND_DN, LDAP_BIND_PASSWORD, LDAP_BASE_DN, and LDAP_USER_FILTER must all be set together, or none of them"
+        ),
+    };
+    if let Some(ldap) = &ldap {
+        if !ldap.url.starts_with("ldaps://") {
+            tracing::warn!(
+                "LDAP_URL is not ldaps:// — the bind password and directory contents travel in cleartext unless \
+                 StartTLS is negotiated out of band"
+            );
+        }
+        tracing::info!(url = %ldap.url, base_dn = %ldap.base_dn, auto_provision = ldap.auto_provision, "LDAP/AD login enabled");
+    }
+
+    let oidc_config = match (&args.oidc_issuer_url, &args.oidc_client_id, &args.oidc_client_secret) {
+        (None, None, None) => None,
+        (Some(issuer_url), Some(client_id), Some(client_secret)) => Some(state::OidcConfig {
+            issuer_url: issuer_url.clone(),
+            client_id: client_id.clone(),
+            client_secret: client_secret.clone(),
+            username_claim: args.oidc_username_claim.clone(),
+            groups_claim: args.oidc_groups_claim.clone(),
+            admin_group: args.oidc_admin_group.clone(),
+            auto_provision: args.oidc_auto_provision,
+        }),
+        _ => anyhow::bail!("OIDC_ISSUER_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET must all be set together, or none of them"),
+    };
+    let oidc = match oidc_config {
+        Some(config) => {
+            // Guaranteed Some by clap's `requires = "app_origin"` on --oidc-issuer-url.
+            let app_origin = app_origin.clone().expect("clap requires APP_ORIGIN alongside OIDC_ISSUER_URL");
+            tracing::info!(issuer = %config.issuer_url, "discovering OIDC provider metadata");
+            let discovered = oidc::Oidc::discover(config, format!("{app_origin}/api/auth/oidc/callback")).await?;
+            tracing::info!("OIDC (SSO) login enabled");
+            Some(std::sync::Arc::new(discovered))
+        }
+        None => None,
+    };
+
+    let state = AppState::new(args.namespace.clone(), client.clone(), pg, app_origin, proxy_origin, home_drives, ldap, oidc);
     tokio::spawn(watch::run(state.clone(), client));
     tokio::spawn(prune_expired_credentials(state.clone()));
 
@@ -239,6 +377,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/login", post(auth::login))
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))
+        .route("/api/auth/config", get(oidc::auth_config))
+        .route("/api/auth/oidc/login", get(oidc::login))
+        .route("/api/auth/oidc/callback", get(oidc::callback))
         .route("/api/me/password", put(auth::change_password))
         .route("/api/sessions", get(auth::list_sessions))
         .route("/api/users", get(users::list_users).post(users::create_user))
@@ -408,10 +549,14 @@ async fn prune_expired_credentials(state: AppState) {
         ticker.tick().await;
         // Written out rather than looped over a table name, because sqlx
         // (rightly) refuses to take SQL built at runtime.
-        let statements: [(&str, _); 3] = [
+        let statements: [(&str, _); 4] = [
             ("sessions", sqlx::query("DELETE FROM sessions WHERE expires_at < now()")),
             ("proxy_auth_tokens", sqlx::query("DELETE FROM proxy_auth_tokens WHERE expires_at < now()")),
             ("proxy_sessions", sqlx::query("DELETE FROM proxy_sessions WHERE expires_at < now()")),
+            // Abandoned OIDC login attempts (state issued, browser never
+            // came back) — oidc::callback already deletes a row the moment
+            // it's used, so this only ever catches ones nobody completed.
+            ("oidc_flow_state", sqlx::query("DELETE FROM oidc_flow_state WHERE created_at < now() - interval '10 minutes'")),
         ];
         for (table, statement) in statements {
             match statement.execute(&state.pg).await {

@@ -476,6 +476,22 @@ pub struct UserInfo {
     /// several groups, each granting access to a different share, rather
     /// than just one primary GID. Empty means none set.
     pub supplemental_groups: Vec<GroupInfo>,
+    /// How this account authenticates: `"local"` (password, argon2-hashed),
+    /// `"ldap"`, or `"oidc"` — read-only, shown on the Users admin tab for
+    /// visibility. Local password login (and, for `"ldap"`/`"oidc"`
+    /// accounts, an admin's password reset) always stays available
+    /// regardless of this value; it only records which check most recently
+    /// provisioned or last confirmed the account.
+    pub auth_source: String,
+}
+
+/// Returned by the unauthenticated `GET /api/auth/config` — lets the login
+/// page decide whether to show an SSO button before anyone has signed in.
+/// LDAP needs no equivalent: it reuses the same username/password form, so
+/// there's nothing for the frontend to change.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AuthConfig {
+    pub oidc_enabled: bool,
 }
 
 /// An admin-managed named group: a display name plus the real GID it

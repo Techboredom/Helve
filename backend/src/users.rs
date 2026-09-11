@@ -36,6 +36,7 @@ struct UserRow {
     uid: Option<i32>,
     gid: Option<i32>,
     supplemental_groups: SqlxJson<Vec<GroupInfo>>,
+    auth_source: String,
 }
 
 impl From<UserRow> for UserInfo {
@@ -48,13 +49,14 @@ impl From<UserRow> for UserInfo {
             uid: row.uid,
             gid: row.gid,
             supplemental_groups: row.supplemental_groups.0,
+            auth_source: row.auth_source,
         }
     }
 }
 
 pub async fn list_users(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Vec<UserInfo>>, ApiError> {
     let sql = format!(
-        "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
+        "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source \
          FROM users u ORDER BY u.username"
     );
     let rows: Vec<UserRow> = sqlx::query_as(AssertSqlSafe(sql)).fetch_all(&state.pg).await?;
@@ -74,7 +76,7 @@ pub async fn create_user(
 
     let sql = format!(
         "INSERT INTO users AS u (username, password_hash, role) VALUES ($1, $2, $3) \
-         RETURNING id, username, role, node_label, uid, gid, {GROUPS_JSON} AS supplemental_groups"
+         RETURNING id, username, role, node_label, uid, gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source"
     );
     let row: UserRow = sqlx::query_as(AssertSqlSafe(sql))
         .bind(&req.username)
@@ -165,7 +167,7 @@ pub async fn set_node_label(
     let node_label = req.node_label.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let sql = format!(
         "UPDATE users AS u SET node_label = $1 WHERE u.id = $2 \
-         RETURNING id, username, role, node_label, uid, gid, {GROUPS_JSON} AS supplemental_groups"
+         RETURNING id, username, role, node_label, uid, gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source"
     );
     let row: Option<UserRow> = sqlx::query_as(AssertSqlSafe(sql)).bind(&node_label).bind(id).fetch_optional(&state.pg).await?;
     let row = row.ok_or_else(|| ApiError::BadRequest(format!("user {id} not found")))?;
@@ -191,7 +193,7 @@ pub async fn set_uid_gid(
     }
     let sql = format!(
         "UPDATE users AS u SET uid = $1, gid = $2 WHERE u.id = $3 \
-         RETURNING id, username, role, node_label, uid, gid, {GROUPS_JSON} AS supplemental_groups"
+         RETURNING id, username, role, node_label, uid, gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source"
     );
     let row: Option<UserRow> = sqlx::query_as(AssertSqlSafe(sql)).bind(req.uid).bind(req.gid).bind(id).fetch_optional(&state.pg).await?;
     let row = row.ok_or_else(|| ApiError::BadRequest(format!("user {id} not found")))?;
@@ -247,7 +249,7 @@ pub async fn set_supplemental_groups(
     }
 
     let sql = format!(
-        "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
+        "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source \
          FROM users u WHERE u.id = $1"
     );
     let row: UserRow = sqlx::query_as(AssertSqlSafe(sql)).bind(id).fetch_one(&mut *tx).await?;

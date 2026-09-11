@@ -135,6 +135,18 @@ release rather than being dead code sitting in an unused named template.
 {{- end -}}
 {{- end -}}
 
+{{- if .Values.ldap.enabled -}}
+{{- if or (not .Values.ldap.url) (not .Values.ldap.bindDn) (not .Values.ldap.existingSecret) (not .Values.ldap.baseDn) (not .Values.ldap.userFilter) -}}
+{{ fail "ldap.enabled=true requires ldap.url, ldap.bindDn, ldap.existingSecret (a Secret holding the bind password, key: ldap.existingSecretKey), ldap.baseDn, and ldap.userFilter." }}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.oidc.enabled -}}
+{{- if or (not .Values.oidc.issuerUrl) (not .Values.oidc.clientId) (not .Values.oidc.existingSecret) -}}
+{{ fail "oidc.enabled=true requires oidc.issuerUrl, oidc.clientId, and oidc.existingSecret (a Secret holding the client secret, key: oidc.existingSecretKey)." }}
+{{- end -}}
+{{- end -}}
+
 {{- if and .Values.ingress.enabled .Values.ingress.tls.enabled (eq .Values.ingress.tls.mode "certManager") (not .Values.ingress.tls.issuerRef.name) -}}
 {{ fail "ingress.tls.mode=certManager requires ingress.tls.issuerRef.name (the cert-manager Issuer/ClusterIssuer to request the certificate from)." }}
 {{- end -}}

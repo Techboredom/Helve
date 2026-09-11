@@ -111,6 +111,54 @@ homeDrives:
     # directory is a subdirectory of.
     existingClaimName: ""
 
+ldap:
+  # LDAP/Active Directory login, tried whenever a login isn't a valid local
+  # password — local password login always stays available alongside it.
+  enabled: false
+  # e.g. "ldaps://dc1.example.com". A plain "ldap://" URL is warned about
+  # at startup: the bind password and directory contents then travel
+  # unencrypted unless StartTLS is negotiated out of band.
+  url: ""
+  # DN of the service account Helve binds as to search the directory for a
+  # user's DN. Needs no privileges beyond reading it.
+  bindDn: ""
+  # Secret (key: existingSecretKey) holding bindDn's password.
+  existingSecret: ""
+  existingSecretKey: bindPassword
+  # Base DN to search under, e.g. "ou=people,dc=example,dc=com".
+  baseDn: ""
+  # e.g. "(uid={username})" (OpenLDAP) or "(sAMAccountName={username})"
+  # (Active Directory) — "{username}" is substituted with the submitted username.
+  userFilter: ""
+  # DN of a group whose membership maps to the admin role, re-checked on
+  # every LDAP login (not just the first). Empty means no group mapping —
+  # every LDAP-provisioned account is a regular user.
+  adminGroupDn: ""
+  # Whether a first-time LDAP login with no matching local account creates
+  # one automatically. false requires an admin to pre-create the account instead.
+  autoProvision: true
+
+oidc:
+  # OIDC (SSO) login: an independent, simultaneously-usable alternative to
+  # local password and LDAP login, not a replacement for either.
+  enabled: false
+  issuerUrl: ""
+  clientId: ""
+  # Secret (key: existingSecretKey) holding the OIDC client secret.
+  existingSecret: ""
+  existingSecretKey: clientSecret
+  # ID token claim to read the Helve username from.
+  usernameClaim: preferred_username
+  # ID token claim carrying group membership, read as a JSON array of strings.
+  groupsClaim: groups
+  # A value in groupsClaim that maps to the admin role, re-checked on every
+  # login the same way ldap.adminGroupDn is. Empty means no group mapping.
+  adminGroup: ""
+  # Same meaning as ldap.autoProvision, with one additional wrinkle: see
+  # charts/helve/README.md's SSO section for the pre-created-account
+  # linking behavior this enables when false.
+  autoProvision: true
+
 adminBootstrap:
   # A Secret (key "password") to use instead of adminBootstrap.password.
   existingSecret: ""

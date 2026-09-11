@@ -127,6 +127,24 @@ and their required credentials.
 | `homeDrives.pvc.existingClaimName` | `""` | **Required when `mode=pvc`, `strategy=shared`.** The PVC already provisioned for this. |
 | `adminBootstrap.existingSecret` | `""` | Existing Secret (key `password`) for the first-boot admin account. |
 | `adminBootstrap.password` | `""` | Convenience alternative to `existingSecret`; ends up in Helm release history. |
+| `ldap.enabled` | `false` | LDAP/AD login, tried whenever a login isn't a valid local password. Local password login always stays available. |
+| `ldap.url` | `""` | **Required when enabled.** e.g. `ldaps://dc1.example.com`. |
+| `ldap.bindDn` | `""` | **Required when enabled.** Service account DN Helve binds as to search the directory. |
+| `ldap.existingSecret` | `""` | **Required when enabled.** Secret (key `ldap.existingSecretKey`) holding `bindDn`'s password. |
+| `ldap.existingSecretKey` | `bindPassword` | |
+| `ldap.baseDn` | `""` | **Required when enabled.** Base DN to search under. |
+| `ldap.userFilter` | `""` | **Required when enabled.** e.g. `(uid={username})` or `(sAMAccountName={username})`. |
+| `ldap.adminGroupDn` | `""` | DN of a group whose membership maps to the admin role, re-checked every login. Empty = no group mapping. |
+| `ldap.autoProvision` | `true` | Whether a first-time LDAP login with no matching account creates one automatically. |
+| `oidc.enabled` | `false` | OIDC (SSO) login — independent of, and usable alongside, local password and LDAP login. |
+| `oidc.issuerUrl` | `""` | **Required when enabled.** |
+| `oidc.clientId` | `""` | **Required when enabled.** |
+| `oidc.existingSecret` | `""` | **Required when enabled.** Secret (key `oidc.existingSecretKey`) holding the client secret. |
+| `oidc.existingSecretKey` | `clientSecret` | |
+| `oidc.usernameClaim` | `preferred_username` | ID token claim to read the Helve username from. |
+| `oidc.groupsClaim` | `groups` | ID token claim carrying group membership, read as a JSON array of strings. |
+| `oidc.adminGroup` | `""` | A value in `groupsClaim` that maps to the admin role, re-checked every login. Empty = no group mapping. |
+| `oidc.autoProvision` | `true` | Whether a first-time SSO login with no linked account creates one automatically. See the main README's SSO section for the pre-created-account linking this enables when `false`. |
 | `nodeSelector` | `{}` | |
 | `tolerations` | `[]` | |
 | `affinity` | `{}` | |
@@ -225,6 +243,10 @@ rather than produce a broken or quietly-insecure install:
 - `homeDrives.mode=hostPath` with no `homeDrives.hostPath.basePath`.
 - `homeDrives.mode=pvc` with no `homeDrives.pvc.storageClassName` or no
   `homeDrives.pvc.size`.
+- `ldap.enabled=true` with any of `ldap.url`/`ldap.bindDn`/
+  `ldap.existingSecret`/`ldap.baseDn`/`ldap.userFilter` unset.
+- `oidc.enabled=true` with any of `oidc.issuerUrl`/`oidc.clientId`/
+  `oidc.existingSecret` unset.
 
 ## High availability
 

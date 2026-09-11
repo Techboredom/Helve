@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-10
+
 ### Added
+
+- **SSO (OIDC) and LDAP/AD authentication.** Two new, independent login
+  backends, both usable alongside local password login (which always
+  stays available — the bootstrap `admin` account in particular has no
+  other way in):
+  - **LDAP/Active Directory** (`LDAP_URL` and friends) — search-then-bind,
+    tried by `POST /api/login` whenever a local password check fails; the
+    frontend needs no changes at all.
+  - **OIDC (SSO)** (`OIDC_ISSUER_URL` and friends) — redirect-based, via
+    `GET /api/auth/oidc/login`/`callback`; the login page shows a "Log in
+    with SSO" button when `GET /api/auth/config` reports it's enabled.
+  - Both share an `auto_provision` toggle (default on) — whether a
+    first-time login with no matching Helve account creates one
+    automatically, or requires an admin to pre-create it — and an
+    optional group-to-admin-role mapping, re-checked (and re-synced) on
+    every login, not just the first.
+  - Every account now carries a read-only `auth_source`
+    (`local`/`ldap`/`oidc`, shown on the Users tab) and a nullable
+    `password_hash`, which is what actually keeps local login locked out
+    for an LDAP/OIDC-provisioned account rather than a separate flag — an
+    admin can still reset one to add a local break-glass password.
+  - See the README's "SSO (OIDC) and LDAP/AD authentication" section for
+    the full behavior, including the account-linking rule OIDC uses to
+    avoid an auto-provisioned login silently taking over an existing
+    account.
 
 - **Home directories.** A template can now set a `home_mount_path` (e.g.
   `/home/jovyan`) to give each user a persistent home directory, mounted
@@ -379,7 +406,8 @@ own cluster.
   section still listed it as missing, contradicting the security-notes
   section describing the throttle).
 
-[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Techboredom/Helve/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Techboredom/Helve/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Techboredom/Helve/releases/tag/v0.4.0
 [0.3.1]: https://github.com/Techboredom/Aether/releases/tag/v0.3.1

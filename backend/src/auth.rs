@@ -90,6 +90,8 @@ pub struct CurrentUser {
     pub gid: Option<i32>,
     /// Admin-set named-group membership — see `common::UserInfo::supplemental_groups`.
     pub supplemental_groups: Vec<GroupInfo>,
+    /// See `common::UserInfo::auth_source`.
+    pub auth_source: String,
 }
 
 #[derive(FromRow)]
@@ -101,6 +103,7 @@ struct SessionUserRow {
     uid: Option<i32>,
     gid: Option<i32>,
     supplemental_groups: SqlxJson<Vec<GroupInfo>>,
+    auth_source: String,
 }
 
 impl FromRequestParts<AppState> for CurrentUser {
@@ -117,7 +120,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         let jar = CookieJar::from_request_parts(parts, state).await.expect("infallible");
         if let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) {
             let sql = format!(
-                "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
+                "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source \
                  FROM sessions s JOIN users u ON u.id = s.user_id \
                  WHERE s.token = $1 AND s.expires_at > now()"
             );
@@ -134,6 +137,7 @@ impl FromRequestParts<AppState> for CurrentUser {
                 uid: row.uid,
                 gid: row.gid,
                 supplemental_groups: row.supplemental_groups.0,
+                auth_source: row.auth_source,
             });
         }
 
@@ -158,6 +162,7 @@ struct ApiTokenUserRow {
     uid: Option<i32>,
     gid: Option<i32>,
     supplemental_groups: SqlxJson<Vec<GroupInfo>>,
+    auth_source: String,
 }
 
 /// Resolves an `Authorization: Bearer <token>` value to the account that
@@ -166,7 +171,7 @@ struct ApiTokenUserRow {
 async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<CurrentUser>, ApiError> {
     let hash = hash_token(token);
     let sql = format!(
-        "SELECT t.id AS token_id, u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
+        "SELECT t.id AS token_id, u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source \
          FROM api_tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = $1"
     );
@@ -182,6 +187,7 @@ async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<Cu
         uid: row.uid,
         gid: row.gid,
         supplemental_groups: row.supplemental_groups.0,
+        auth_source: row.auth_source,
     }))
 }
 
@@ -191,7 +197,7 @@ async fn user_from_api_token(pg: &sqlx::PgPool, token: &str) -> Result<Option<Cu
 /// therefore never receives that cookie.
 pub async fn user_by_id(pg: &sqlx::PgPool, id: i32) -> Result<Option<CurrentUser>, ApiError> {
     let sql = format!(
-        "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
+        "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source \
          FROM users u WHERE u.id = $1"
     );
     let row: Option<SessionUserRow> = sqlx::query_as(AssertSqlSafe(sql)).bind(id).fetch_optional(pg).await?;
@@ -203,6 +209,7 @@ pub async fn user_by_id(pg: &sqlx::PgPool, id: i32) -> Result<Option<CurrentUser
         uid: row.uid,
         gid: row.gid,
         supplemental_groups: row.supplemental_groups.0,
+        auth_source: row.auth_source,
     }))
 }
 
@@ -222,16 +229,12 @@ impl FromRequestParts<AppState> for AdminUser {
     }
 }
 
+/// Just enough to check a local password — `establish_session` below
+/// re-fetches everything else once the login is known to have succeeded.
 #[derive(FromRow)]
 struct UserAuthRow {
     id: i32,
-    username: String,
-    password_hash: String,
-    role: String,
-    node_label: Option<String>,
-    uid: Option<i32>,
-    gid: Option<i32>,
-    supplemental_groups: SqlxJson<Vec<GroupInfo>>,
+    password_hash: Option<String>,
 }
 
 pub async fn login(
@@ -249,23 +252,48 @@ pub async fn login(
         ));
     }
 
-    let sql = format!(
-        "SELECT u.id, u.username, u.password_hash, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups \
-         FROM users u WHERE u.username = $1"
-    );
-    let row: Option<UserAuthRow> = sqlx::query_as(AssertSqlSafe(sql)).bind(&req.username).fetch_optional(&state.pg).await?;
+    let row: Option<UserAuthRow> =
+        sqlx::query_as("SELECT id, password_hash FROM users WHERE username = $1").bind(&req.username).fetch_optional(&state.pg).await?;
 
-    let row = row.filter(|r| verify_password(&r.password_hash, &req.password));
+    // A NULL password_hash (an LDAP/OIDC-provisioned account, see
+    // auth_source) can never pass this check — verify_password requires a
+    // real hash, so there's nothing further to do to keep those exclusive.
+    let row = row.filter(|r| r.password_hash.as_deref().is_some_and(|hash| verify_password(hash, &req.password)));
     let Some(row) = row else {
+        if let Some(ldap) = state.ldap.clone()
+            && let Some(user_id) = crate::ldap::authenticate_and_provision(&state, &ldap, &req.username, &req.password).await?
+        {
+            state.clear_login_failures(addr.ip()).await;
+            let (jar, user) = establish_session(&state, user_id, addr, &headers, jar).await?;
+            return Ok((jar, Json(user)));
+        }
         state.record_login_failure(addr.ip()).await;
         return Err(ApiError::Unauthorized);
     };
     state.clear_login_failures(addr.ip()).await;
 
+    let (jar, user) = establish_session(&state, row.id, addr, &headers, jar).await?;
+    Ok((jar, Json(user)))
+}
+
+/// Everything a successful login does after credentials are already
+/// verified, regardless of which backend (local password, LDAP, OIDC)
+/// checked them: mint a session token, record it and the `session_log`
+/// audit row, and build the cookie. Re-fetches the full `UserInfo` rather
+/// than threading it through from the caller, since each backend arrives
+/// here with a different partial view of the row (LDAP/OIDC don't already
+/// have `node_label`/`uid`/`gid`/groups loaded the way local login does).
+pub(crate) async fn establish_session(
+    state: &AppState,
+    user_id: i32,
+    addr: SocketAddr,
+    headers: &HeaderMap,
+    jar: CookieJar,
+) -> Result<(CookieJar, UserInfo), ApiError> {
     let token = generate_token();
     sqlx::query("INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, now() + make_interval(days => $3))")
         .bind(&token)
-        .bind(row.id)
+        .bind(user_id)
         .bind(SESSION_LIFETIME_DAYS as i32)
         .execute(&state.pg)
         .await?;
@@ -275,7 +303,7 @@ pub async fn login(
     // deleted on logout/invalidation and only used for live auth checks.
     let user_agent = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
     sqlx::query("INSERT INTO session_log (user_id, ip_address, user_agent) VALUES ($1, $2, $3)")
-        .bind(row.id)
+        .bind(user_id)
         .bind(addr.ip().to_string())
         .bind(user_agent)
         .execute(&state.pg)
@@ -292,19 +320,23 @@ pub async fn login(
         .max_age(Duration::days(SESSION_LIFETIME_DAYS))
         .build();
 
+    let sql = format!(
+        "SELECT u.id, u.username, u.role, u.node_label, u.uid, u.gid, {GROUPS_JSON} AS supplemental_groups, u.auth_source \
+         FROM users u WHERE u.id = $1"
+    );
+    let row: SessionUserRow = sqlx::query_as(AssertSqlSafe(sql)).bind(user_id).fetch_one(&state.pg).await?;
     let role = if row.role == "admin" { Role::Admin } else { Role::User };
-    Ok((
-        jar.add(cookie),
-        Json(UserInfo {
-            id: row.id,
-            username: row.username,
-            role,
-            node_label: row.node_label,
-            uid: row.uid,
-            gid: row.gid,
-            supplemental_groups: row.supplemental_groups.0,
-        }),
-    ))
+    let user = UserInfo {
+        id: row.id,
+        username: row.username,
+        role,
+        node_label: row.node_label,
+        uid: row.uid,
+        gid: row.gid,
+        supplemental_groups: row.supplemental_groups.0,
+        auth_source: row.auth_source,
+    };
+    Ok((jar.add(cookie), user))
 }
 
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Result<CookieJar, ApiError> {
@@ -325,20 +357,31 @@ pub async fn me(user: CurrentUser) -> Json<UserInfo> {
         uid: user.uid,
         gid: user.gid,
         supplemental_groups: user.supplemental_groups,
+        auth_source: user.auth_source,
     })
 }
 
 /// Lets a logged-in user change their own password, proving they know the
 /// current one first (unlike an admin's reset). Invalidates every other
 /// session for the account, but leaves the one making this request logged in.
+/// Works for an LDAP/OIDC-provisioned account too (it just sets a local
+/// password alongside the external one, a break-glass path) — but such an
+/// account has no existing password to prove knowledge of yet, so this is
+/// refused until an admin resets it once first (`reset_password`, which
+/// requires no current-password proof).
 pub async fn change_password(
     user: CurrentUser,
     State(state): State<AppState>,
     jar: CookieJar,
     Json(req): Json<ChangePasswordRequest>,
 ) -> Result<(), ApiError> {
-    let current_hash: String =
+    let current_hash: Option<String> =
         sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1").bind(user.id).fetch_one(&state.pg).await?;
+    let Some(current_hash) = current_hash else {
+        return Err(ApiError::BadRequest(
+            "this account has no local password yet — ask an admin to set one first".to_string(),
+        ));
+    };
     if !verify_password(&current_hash, &req.current_password) {
         return Err(ApiError::BadRequest("current password is incorrect".to_string()));
     }

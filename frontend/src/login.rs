@@ -1,4 +1,4 @@
-use common::{LoginRequest, UserInfo};
+use common::{AuthConfig, LoginRequest, UserInfo};
 use gloo_net::http::Request;
 use leptos::prelude::*;
 use leptos::tachys::dom::event_target_value;
@@ -10,6 +10,13 @@ pub fn LoginPage(current_user: RwSignal<Option<UserInfo>>) -> impl IntoView {
     let password = RwSignal::new(String::new());
     let error = RwSignal::new(None::<String>);
     let submitting = RwSignal::new(false);
+    let oidc_enabled = RwSignal::new(false);
+
+    spawn_local(async move {
+        if let Ok(config) = fetch_auth_config().await {
+            oidc_enabled.set(config.oidc_enabled);
+        }
+    });
 
     let on_submit = move |ev: web_sys::SubmitEvent| {
         ev.prevent_default();
@@ -33,6 +40,12 @@ pub fn LoginPage(current_user: RwSignal<Option<UserInfo>>) -> impl IntoView {
             <form class="login-form" on:submit=on_submit>
                 <h1>"Helve"</h1>
                 {move || error.get().map(|msg| view! { <div class="error">{msg}</div> })}
+                <Show when=move || oidc_enabled.get()>
+                    <a class="sso-button" href="/api/auth/oidc/login">
+                        "Log in with SSO"
+                    </a>
+                    <p class="sso-divider">"or"</p>
+                </Show>
                 <label>
                     "Username"
                     <input
@@ -57,6 +70,11 @@ pub fn LoginPage(current_user: RwSignal<Option<UserInfo>>) -> impl IntoView {
             </form>
         </div>
     }
+}
+
+async fn fetch_auth_config() -> Result<AuthConfig, String> {
+    let resp = Request::get("/api/auth/config").send().await.map_err(|err| format!("request failed: {err}"))?;
+    resp.json::<AuthConfig>().await.map_err(|err| format!("failed to parse response: {err}"))
 }
 
 async fn attempt_login(req: LoginRequest) -> Result<UserInfo, String> {

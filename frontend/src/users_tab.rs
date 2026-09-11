@@ -115,6 +115,7 @@ pub fn UsersTab() -> impl IntoView {
                         <tr>
                             <th>"Username"</th>
                             <th>"Role"</th>
+                            <th>"Auth source"</th>
                             <th>"Node label"</th>
                             <th>"UID/GID"</th>
                             <th>"Supplemental groups"</th>
@@ -149,6 +150,7 @@ pub fn UsersTab() -> impl IntoView {
                                     <tr>
                                         <td>{u.username.clone()}</td>
                                         <td>{role_label}</td>
+                                        <td>{u.auth_source.clone()}</td>
                                         <td>{node_label_display}</td>
                                         <td>{uidgid_display}</td>
                                         <td>{groups_display}</td>

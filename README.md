@@ -232,6 +232,20 @@ All flags can also be set as environment variables:
 | `--admin-bootstrap-password` / `ADMIN_BOOTSTRAP_PASSWORD` | *(none)* | Creates the initial `admin` account on first run only; ignored once any user exists |
 | `--app-origin` / `APP_ORIGIN` | *(none)* | Public origin this app is served from, e.g. `https://helve.example.com`. Must be set together with `--proxy-base-domain` |
 | `--proxy-base-domain` / `PROXY_BASE_DOMAIN` | *(none)* | Base domain for per-deployment proxy origins, e.g. `proxy.helve.example.com`. Needs wildcard DNS + TLS for `*.<domain>`. **Leaving it unset is only appropriate for local development** — see "Per-deployment proxy origins" below |
+| `--ldap-url` / `LDAP_URL` | *(none)* | Turns on LDAP/AD login (with the four flags below it, all required together). e.g. `ldaps://dc1.example.com` — see "SSO (OIDC) and LDAP/AD authentication" below |
+| `--ldap-bind-dn` / `LDAP_BIND_DN` | *(none)* | Service account DN Helve binds as to search the directory |
+| `--ldap-bind-password` / `LDAP_BIND_PASSWORD` | *(none)* | Password for `--ldap-bind-dn` |
+| `--ldap-base-dn` / `LDAP_BASE_DN` | *(none)* | Base DN to search under |
+| `--ldap-user-filter` / `LDAP_USER_FILTER` | *(none)* | e.g. `(uid={username})` or `(sAMAccountName={username})` |
+| `--ldap-admin-group-dn` / `LDAP_ADMIN_GROUP_DN` | *(none)* | Group DN whose membership maps to the admin role, re-checked every login |
+| `--ldap-auto-provision` / `LDAP_AUTO_PROVISION` | `true` | Whether a first-time LDAP login with no matching account creates one automatically |
+| `--oidc-issuer-url` / `OIDC_ISSUER_URL` | *(none)* | Turns on OIDC (SSO) login (with the two client flags below it, all required together). Requires `--app-origin` |
+| `--oidc-client-id` / `OIDC_CLIENT_ID` | *(none)* | |
+| `--oidc-client-secret` / `OIDC_CLIENT_SECRET` | *(none)* | |
+| `--oidc-username-claim` / `OIDC_USERNAME_CLAIM` | `preferred_username` | ID token claim to read the Helve username from |
+| `--oidc-groups-claim` / `OIDC_GROUPS_CLAIM` | `groups` | ID token claim carrying group membership, read as a JSON array of strings |
+| `--oidc-admin-group` / `OIDC_ADMIN_GROUP` | *(none)* | Value in `--oidc-groups-claim` that maps to the admin role, re-checked every login |
+| `--oidc-auto-provision` / `OIDC_AUTO_PROVISION` | `true` | Whether a first-time SSO login with no linked account creates one automatically |
 
 ### Endpoints
 
@@ -241,11 +255,14 @@ present at all, an `Authorization: Bearer <token>` header naming a valid
 API token (see "Admin API tokens" below) — the ones marked *(admin)*
 additionally require the `admin` role either way (403 otherwise).
 
-- `POST /api/login` — body `{username, password}`; sets the `helve_session` cookie and returns the logged-in `UserInfo` on success, 401 on bad credentials
+- `POST /api/login` — body `{username, password}`; sets the `helve_session` cookie and returns the logged-in `UserInfo` on success, 401 on bad credentials. If the username/password don't match a local account and LDAP is configured, tries LDAP before giving up — see "SSO (OIDC) and LDAP/AD authentication" below.
 - `POST /api/logout` — clears the session (both server-side and the cookie)
-- `GET /api/me` — returns the current `UserInfo` (`{id, username, role}`), or 401 if not logged in — this is what the frontend polls on load to decide whether to show the login page
-- `PUT /api/me/password` — body `{current_password, new_password}`; changes your own password, 400 if `current_password` doesn't match. Deletes every other session for your account (`DELETE FROM sessions WHERE user_id = $1 AND token != $2`) but leaves the one making this request logged in.
-- `GET /api/users` *(admin)* — list accounts (id, username, role, node_label, uid, gid — never password hashes)
+- `GET /api/me` — returns the current `UserInfo` (`{id, username, role, auth_source, ...}`), or 401 if not logged in — this is what the frontend polls on load to decide whether to show the login page
+- `PUT /api/me/password` — body `{current_password, new_password}`; changes your own password, 400 if `current_password` doesn't match, or if the account has no local password yet (an LDAP/OIDC-provisioned account — ask an admin to set one first). Deletes every other session for your account (`DELETE FROM sessions WHERE user_id = $1 AND token != $2`) but leaves the one making this request logged in.
+- `GET /api/auth/config` — unauthenticated; `{oidc_enabled}`. The login page uses this to decide whether to show an SSO button. LDAP needs no equivalent — it's invisible, reusing the same login form.
+- `GET /api/auth/oidc/login` — unauthenticated; a full-page-navigation target (not an XHR endpoint) that redirects the browser to the configured IdP. 400 if OIDC isn't configured.
+- `GET /api/auth/oidc/callback?code=&state=` — unauthenticated; where the IdP redirects back. Exchanges the code, verifies the ID token, establishes a session, and redirects to `/`. An unrecognized/expired `state` redirects to `/` too rather than erroring — see "SSO (OIDC) and LDAP/AD authentication" below.
+- `GET /api/users` *(admin)* — list accounts (id, username, role, auth_source, node_label, uid, gid — never password hashes)
 - `POST /api/users` *(admin)* — create an account; body `{username, password, role}` (`role` is `"admin"` or `"user"`); username 3-32 chars, lowercase alphanumeric or `-` only (same grammar as a Kubernetes name — it becomes part of one, see `POST /api/deployments` below), password ≥ 8 chars
 - `DELETE /api/users/{id}` *(admin)* — delete an account; an admin can't delete their own account (guards against an easy self-lockout)
 - `PUT /api/users/{id}/password` *(admin)* — body `{password}`; resets another account's password without needing the old one — the admin role itself is the authorization. Deletes **all** of that account's sessions (there's no "current session" to preserve, since it isn't the admin's own).
@@ -904,6 +921,93 @@ a real shell (not just asserted on the string transformation) — so nothing
 in `home_mount_path` can break out of the generated script regardless of
 its charset.
 
+## SSO (OIDC) and LDAP/AD authentication
+
+Local password login (`POST /api/login`, argon2-hashed, an opaque session
+token in `sessions`) is always available — it's the only way into a
+freshly-bootstrapped cluster, and the only path for the bootstrap `admin`
+account. Two more, independent login backends can be turned on alongside
+it, each tried as a fallback whenever local password login doesn't apply:
+
+- **LDAP/Active Directory** (`LDAP_URL` and friends, or `ldap.enabled` in
+  the chart) — no redirect, reuses the existing login form and
+  `POST /api/login` entirely; the frontend has no idea it's happening.
+  Search-then-bind: Helve binds as a service account
+  (`LDAP_BIND_DN`/`LDAP_BIND_PASSWORD`) to search `LDAP_BASE_DN` with
+  `LDAP_USER_FILTER` (`{username}` substituted, rejected up front if it
+  contains LDAP filter metacharacters) for the submitted username's DN,
+  then opens a second connection and binds as *that* DN with the supplied
+  password — the actual credential check. `LDAP_URL` should be
+  `ldaps://`; a plain `ldap://` URL is warned about at startup, the bind
+  password and directory contents otherwise traveling in cleartext.
+
+- **OIDC (SSO)** (`OIDC_ISSUER_URL` and friends, or `oidc.enabled` in the
+  chart) — redirect-based: `GET /api/auth/oidc/login` sends the browser to
+  the IdP (PKCE + CSRF state + nonce, tracked server-side in
+  `oidc_flow_state` rather than in-process, since `replicaCount` can be
+  >1 and the callback can land on a different pod than the one that
+  issued the redirect), and `GET /api/auth/oidc/callback` exchanges the
+  code, verifies the ID token, and establishes a session. The login page
+  shows a "Log in with SSO" button whenever `GET /api/auth/config` (the
+  one unauthenticated, unauthenticated-by-design signal the frontend
+  needs) reports it's on.
+
+Both back-ends share the same two knobs:
+
+- **Auto-provisioning** (`LDAP_AUTO_PROVISION`/`OIDC_AUTO_PROVISION`,
+  default `true`) — whether a first-time login with no matching Helve
+  account creates one automatically, or is refused with a 403 asking the
+  user to contact an admin. Turn it off to require accounts to be
+  pre-created (the Users admin tab, any password — it's never checked
+  again once the account authenticates externally).
+- **Group-to-admin-role mapping**
+  (`LDAP_ADMIN_GROUP_DN`/`OIDC_ADMIN_GROUP`) — when set, membership is
+  re-checked on **every** login, not just the first, and the account's
+  `role` is written to match. The directory/IdP becomes the source of
+  truth for that account's role once this is on: a manual role change
+  made from the Users tab is overwritten the next time that person logs
+  in. An account with no group match, or with no mapping configured at
+  all, always ends up `Role::User` — auto-provisioning never silently
+  grants `Role::Admin` for lack of a signal either way.
+
+Every account carries an `auth_source` (`local`/`ldap`/`oidc`, shown
+read-only on the Users tab) and a nullable `password_hash` — an
+LDAP/OIDC-provisioned account has none by default, which is what actually
+keeps local login locked out for it (there's no hash to check the
+submitted password against), not a separate flag. An admin can still
+`PUT /api/users/{id}/password` to give such an account a local
+break-glass password without changing its `auth_source`.
+
+OIDC's one extra wrinkle, beyond what LDAP needs: accounts are matched by
+the `sub` claim (`oidc_subject`), the only value the spec guarantees is
+stable — never by email or username, either of which can change or be
+reused. The very first time a given `sub` is seen, though, there's a
+choice to make:
+
+- With auto-provisioning **on**, an unrecognized `sub` always creates a
+  brand-new account. It never links to an existing local account that
+  happens to share a username — that's the account-takeover-shaped edge
+  case (anyone who can get a matching username registered at the IdP
+  would otherwise be able to annex an existing Helve account) this
+  deliberately closes off. A genuine username collision instead fails
+  with a clear 400.
+- With auto-provisioning **off**, an unrecognized `sub` is allowed to
+  link to an existing local account matching the configured
+  `OIDC_USERNAME_CLAIM` — but *only* one that has never been linked to
+  any `sub` before. This is the intended path for "an admin pre-created
+  the account specifically to be claimed via SSO."
+
+`username_claim`/`groups_claim` name arbitrary, IdP-specific claims
+(default `preferred_username`/`groups`) that `openidconnect`'s typed
+claims struct has no fields for, so they're read directly from the ID
+token's own (already signature-verified) JSON payload rather than through
+a typed accessor.
+
+See `charts/helve/values.yaml`'s `ldap`/`oidc` blocks for the Helm-level
+knobs — `LDAP_BIND_PASSWORD`/`OIDC_CLIENT_SECRET` are Secret references
+(`existingSecret`/`existingSecretKey`), never inlined in `values.yaml`,
+the same shape as `database.existingSecret`.
+
 ## Admin API tokens
 
 Everything in this API otherwise requires a session cookie — fine for the
@@ -1075,6 +1179,21 @@ WebSocket — still end when their pod does).
   (see "Activity logging" above), visible to the account it belongs to and
   to admins — a privacy/data-retention tradeoff worth knowing about if this
   is ever used somewhere IP logging needs disclosure.
+- LDAP/AD login (see "SSO (OIDC) and LDAP/AD authentication" above)
+  rejects a submitted username containing LDAP filter metacharacters
+  (`*`, `(`, `)`, `\`, NUL) before it ever reaches the configured search
+  filter, and rejects an empty password outright (some directory servers
+  treat that as an anonymous bind, which "succeeds" without checking
+  anything). `LDAP_URL` not being `ldaps://` is warned about at startup,
+  the same way a non-`https` `APP_ORIGIN` is.
+- OIDC login uses PKCE + CSRF `state` + a `nonce`, all Postgres-backed
+  (`oidc_flow_state`, single-use, ~10-minute expiry) rather than
+  in-process, since `replicaCount` can be >1 and the callback can land on
+  a different pod than the one that issued the redirect. Accounts are
+  matched by the `sub` claim only, never by email/username, and an
+  auto-provisioned account is never silently linked to an existing one —
+  see the README section above for the exact rule. The HTTP client used
+  for discovery/token/JWKS requests never follows redirects.
 
 **Input validation** (`backend/src/validate.rs`), applied to Launch, Templates,
 and Users requests server-side (the real boundary) and mirrored as HTML5

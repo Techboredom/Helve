@@ -103,6 +103,68 @@ pub enum HomeDrives {
     SharedPvc { claim_name: String },
 }
 
+/// LDAP/Active Directory login, tried by `auth::login` as a fallback
+/// whenever the local password check fails — see `ldap::authenticate_and_provision`.
+/// `None` (the field unset) disables it entirely, leaving local password
+/// login as the only path, same `Option<T>`-on-`AppState` shape as
+/// [`HomeDrives`].
+#[derive(Clone, Debug)]
+pub struct LdapConfig {
+    /// `ldaps://...` (or `ldap://...` with StartTLS negotiated
+    /// separately) — a plain `ldap://` URL sends the bind password
+    /// unencrypted and is warned about at startup, the same way
+    /// `APP_ORIGIN` not being https is.
+    pub url: String,
+    /// Service account Helve binds as to search for the user's DN. Needs
+    /// no privileges beyond reading the directory.
+    pub bind_dn: String,
+    pub bind_password: String,
+    pub base_dn: String,
+    /// e.g. `"(uid={username})"` (OpenLDAP) or `"(sAMAccountName={username})"`
+    /// (Active Directory) — `{username}` is substituted with the submitted
+    /// username, rejected first if it contains LDAP filter metacharacters.
+    pub user_filter: String,
+    /// DN of a group whose membership maps to `Role::Admin`. Checked on
+    /// every successful LDAP login (not just provisioning), so the
+    /// directory stays the source of truth for this once it's set — a
+    /// manual role change made from the Users tab is overwritten on that
+    /// account's next LDAP login.
+    pub admin_group_dn: Option<String>,
+    /// Whether a first-time LDAP login with no matching local account
+    /// creates one automatically. `false` means an admin must pre-create
+    /// the account (any password works — it's immediately overridden by
+    /// the LDAP check) before that user can ever log in.
+    pub auto_provision: bool,
+}
+
+/// OIDC (SSO) login — an independent, simultaneously-usable alternative to
+/// [`LdapConfig`] and local password login, not a replacement for either.
+/// `None` disables it; the login page then shows no SSO button at all
+/// (`GET /api/auth/config`).
+#[derive(Clone, Debug)]
+pub struct OidcConfig {
+    pub issuer_url: String,
+    pub client_id: String,
+    pub client_secret: String,
+    /// Claim to read the Helve username from — e.g. `"preferred_username"`.
+    /// Only consulted the first time an account is provisioned/linked;
+    /// every login after that is identified by `oidc_subject` alone.
+    pub username_claim: String,
+    /// Claim carrying group membership, read as a JSON array of strings —
+    /// e.g. `"groups"`. Absent or non-array is treated as "no groups".
+    pub groups_claim: String,
+    /// A group name in `groups_claim`'s value that maps to `Role::Admin`,
+    /// re-checked on every login the same way `LdapConfig::admin_group_dn` is.
+    pub admin_group: Option<String>,
+    /// Same meaning as `LdapConfig::auto_provision`, with one additional
+    /// wrinkle: when `false`, a first-ever login for a given `sub` may link
+    /// to an *existing* local account matching `username_claim` instead of
+    /// being rejected — see `oidc::callback`. When `true`, that linking
+    /// never happens (closes an account-takeover-shaped edge case), and an
+    /// unrecognized `sub` always creates a new account instead.
+    pub auto_provision: bool,
+}
+
 /// How many failed logins from one address, within [`LOGIN_FAILURE_WINDOW`],
 /// before further attempts are refused outright.
 const MAX_LOGIN_FAILURES: usize = 10;
@@ -175,12 +237,22 @@ pub struct AppState {
     pub proxy_origin: Option<ProxyOrigin>,
     /// `None` = the home-directory feature is off entirely; see [`HomeDrives`].
     pub home_drives: Option<HomeDrives>,
+    /// `None` = LDAP/AD login is off entirely; see [`LdapConfig`].
+    pub ldap: Option<LdapConfig>,
+    /// `None` = OIDC (SSO) login is off entirely. Holds the already-
+    /// discovered provider client (see `oidc::Oidc::discover`, run once at
+    /// startup) alongside its `OidcConfig`, wrapped in an `Arc` since the
+    /// discovered client itself is neither `Copy` nor cheap to rebuild —
+    /// `AppState` as a whole is cloned per-request the way axum's `State`
+    /// extractor always does.
+    pub oidc: Option<Arc<crate::oidc::Oidc>>,
     login_throttle: LoginThrottle,
     pods: Arc<RwLock<HashMap<String, PodInfo>>>,
     events: broadcast::Sender<PodEvent>,
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         namespace: String,
         client: Client,
@@ -188,6 +260,8 @@ impl AppState {
         app_origin: Option<String>,
         proxy_origin: Option<ProxyOrigin>,
         home_drives: Option<HomeDrives>,
+        ldap: Option<LdapConfig>,
+        oidc: Option<Arc<crate::oidc::Oidc>>,
     ) -> Self {
         let (events, _) = broadcast::channel(256);
         Self {
@@ -197,6 +271,8 @@ impl AppState {
             app_origin,
             proxy_origin,
             home_drives,
+            ldap,
+            oidc,
             login_throttle: LoginThrottle::default(),
             pods: Arc::new(RwLock::new(HashMap::new())),
             events,

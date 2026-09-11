@@ -120,6 +120,48 @@ spec:
                   key: password
                   optional: true
             {{- end }}
+            {{- if .Values.ldap.enabled }}
+            - name: LDAP_URL
+              value: {{ .Values.ldap.url | quote }}
+            - name: LDAP_BIND_DN
+              value: {{ .Values.ldap.bindDn | quote }}
+            - name: LDAP_BIND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ldap.existingSecret }}
+                  key: {{ .Values.ldap.existingSecretKey }}
+            - name: LDAP_BASE_DN
+              value: {{ .Values.ldap.baseDn | quote }}
+            - name: LDAP_USER_FILTER
+              value: {{ .Values.ldap.userFilter | quote }}
+            {{- if .Values.ldap.adminGroupDn }}
+            - name: LDAP_ADMIN_GROUP_DN
+              value: {{ .Values.ldap.adminGroupDn | quote }}
+            {{- end }}
+            - name: LDAP_AUTO_PROVISION
+              value: {{ .Values.ldap.autoProvision | quote }}
+            {{- end }}
+            {{- if .Values.oidc.enabled }}
+            - name: OIDC_ISSUER_URL
+              value: {{ .Values.oidc.issuerUrl | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.oidc.clientId | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oidc.existingSecret }}
+                  key: {{ .Values.oidc.existingSecretKey }}
+            - name: OIDC_USERNAME_CLAIM
+              value: {{ .Values.oidc.usernameClaim | quote }}
+            - name: OIDC_GROUPS_CLAIM
+              value: {{ .Values.oidc.groupsClaim | quote }}
+            {{- if .Values.oidc.adminGroup }}
+            - name: OIDC_ADMIN_GROUP
+              value: {{ .Values.oidc.adminGroup | quote }}
+            {{- end }}
+            - name: OIDC_AUTO_PROVISION
+              value: {{ .Values.oidc.autoProvision | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
