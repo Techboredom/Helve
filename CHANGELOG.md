@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-11
+
+### Fixed
+
+- **Header layout broke once the admin tab count grew past what fits on
+  one line.** `header` held the logo, title, tabs nav, and account
+  controls (username, theme toggle, change password, log out) as a
+  single `justify-content: space-between` row. With nine tabs now
+  (Pods/Launch/Activity plus, for an admin, Templates/Images/Users/
+  Groups/Quotas/API Tokens), that row wraps at ordinary desktop widths,
+  and `space-between` left-aligns whatever lands alone on the wrapped
+  line — orphaning the account controls on their own left-aligned line
+  below the tabs instead of staying grouped with the logo. Split into two
+  rows: brand + account controls on top, tabs nav on its own full-width
+  row below (which now also wraps its own buttons if it's ever too wide
+  for one line, rather than overflowing).
+
 ## [0.5.0] - 2026-09-10
 
 ### Added
@@ -406,7 +423,8 @@ own cluster.
   section still listed it as missing, contradicting the security-notes
   section describing the throttle).
 
-[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Techboredom/Helve/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Techboredom/Helve/releases/tag/v0.5.1
 [0.5.0]: https://github.com/Techboredom/Helve/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Techboredom/Helve/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Techboredom/Helve/releases/tag/v0.4.0

@@ -156,13 +156,32 @@ select {
   outline-offset: 2px;
 }
 
+/* Two rows, not one: the tab count has grown (Pods/Launch/Activity plus,
+   for an admin, six more) to the point that .tabs no longer reliably fits
+   on the same line as the brand and account controls. Splitting it onto
+   its own full-width row means it can grow further without .user-info
+   getting shoved onto an orphaned, left-aligned second line — which is
+   what a single-row `justify-content: space-between` does the moment it
+   wraps with an odd number of items. */
 header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.header-top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-5);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .brand-mark {
@@ -337,6 +356,7 @@ h1 {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1120,7 +1140,7 @@ tbody tr:hover {
 }
 
 @media (max-width: 480px) {
-  header {
+  .header-top {
     flex-direction: column;
     align-items: flex-start;
   }
