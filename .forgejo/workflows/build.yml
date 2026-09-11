@@ -100,6 +100,14 @@ jobs:
       - name: Build and push by digest
         id: build
         run: |
+          # buildx writes --metadata-file as a discrete step after the
+          # build+push itself completes, and (unlike --output paths) does
+          # not create missing parent directories for it — an otherwise
+          # fully successful build was failing right at the finish line
+          # ("invalid output path: stat ...: no such file or directory"),
+          # after the image was already pushed by digest but before that
+          # digest could ever reach $GITHUB_OUTPUT for the merge job below.
+          mkdir -p /tmp/helve-buildx-amd64
           docker buildx build \
             --platform linux/amd64 \
             --metadata-file /tmp/helve-buildx-amd64/metadata.json \
@@ -140,6 +148,9 @@ jobs:
       - name: Build and push by digest
         id: build
         run: |
+          # See build-amd64's identical step: --metadata-file needs its
+          # parent directory to already exist.
+          mkdir -p /tmp/helve-buildx-arm64
           docker buildx build \
             --platform linux/arm64 \
             --metadata-file /tmp/helve-buildx-arm64/metadata.json \
