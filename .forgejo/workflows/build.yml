@@ -106,36 +106,47 @@ jobs:
       - name: amd64 - set up buildx and build/push by digest
         id: build-amd64
         run: |
-          bash .forgejo/scripts/setup-buildx.sh amd64
+          bash .forgejo/scripts/setup-buildx.sh amd64 "${{ github.run_id }}"
           docker buildx build \
             --platform linux/amd64 \
-            --metadata-file /tmp/helve-buildx-amd64/metadata.json \
+            --metadata-file /tmp/helve-buildx-amd64-${{ github.run_id }}/metadata.json \
             --output "type=image,name=${IMAGE},push=true,push-by-digest=true,name-canonical=true" \
             .
-          DIGEST="$(python3 -c "import json; print(json.load(open('/tmp/helve-buildx-amd64/metadata.json'))['containerimage.digest'])")"
+          DIGEST="$(python3 -c "import json; print(json.load(open('/tmp/helve-buildx-amd64-${{ github.run_id }}/metadata.json'))['containerimage.digest'])")"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
+      # Both the workdir and the builder itself: unlike the old fixed
+      # "helve-builder-amd64" name (self-recycled by the next run's own
+      # `docker buildx rm` before recreating it), a run-ID-scoped name is
+      # never reused by a later run, so nothing else will ever remove it -
+      # left alone, every run would leave its own builder container behind
+      # forever.
       - name: Clean up amd64 build artifacts
         if: always()
-        run: rm -rf /tmp/helve-buildx-amd64
+        run: |
+          rm -rf /tmp/helve-buildx-amd64-${{ github.run_id }}
+          docker buildx rm "helve-builder-amd64-${{ github.run_id }}" 2>/dev/null || true
 
       # Deliberately after amd64, not parallel to it - see this job's own
       # comment above. Same structure as the amd64 step, arch swapped.
       - name: arm64 - set up buildx and build/push by digest
         id: build-arm64
         run: |
-          bash .forgejo/scripts/setup-buildx.sh arm64
+          bash .forgejo/scripts/setup-buildx.sh arm64 "${{ github.run_id }}"
           docker buildx build \
             --platform linux/arm64 \
-            --metadata-file /tmp/helve-buildx-arm64/metadata.json \
+            --metadata-file /tmp/helve-buildx-arm64-${{ github.run_id }}/metadata.json \
             --output "type=image,name=${IMAGE},push=true,push-by-digest=true,name-canonical=true" \
             .
-          DIGEST="$(python3 -c "import json; print(json.load(open('/tmp/helve-buildx-arm64/metadata.json'))['containerimage.digest'])")"
+          DIGEST="$(python3 -c "import json; print(json.load(open('/tmp/helve-buildx-arm64-${{ github.run_id }}/metadata.json'))['containerimage.digest'])")"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
+      # Same reasoning as the amd64 cleanup step above.
       - name: Clean up arm64 build artifacts
         if: always()
-        run: rm -rf /tmp/helve-buildx-arm64
+        run: |
+          rm -rf /tmp/helve-buildx-arm64-${{ github.run_id }}
+          docker buildx rm "helve-builder-arm64-${{ github.run_id }}" 2>/dev/null || true
 
       - name: Log out
         if: always()

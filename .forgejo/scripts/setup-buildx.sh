@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
 # Creates a CA-trusted buildx builder, parameterized by a unique suffix
-# (the arch it's about to build for) so two of these can run concurrently
-# on the same host-mode runner without colliding.
+# (the arch it's about to build for) plus the calling workflow run's own
+# ID, so builds from different runs can never collide on the same
+# host-mode runner.
 #
-# That concurrency is the entire reason this is a parameterized script
-# rather than the inline step it used to be: when the amd64 and arm64
-# builds ran sequentially in one job, a single fixed builder name and
-# fixed /tmp paths were fine. Running them as two parallel jobs on the
-# same physical machine (there is only one runner) means both would
-# otherwise fight over the same builder name and stomp each other's
-# in-flight temp files mid-build.
+# The run ID is the part that actually matters: this workflow triggers on
+# both a push to main *and* a "vX.Y.Z" tag push (build.yml's `on:`), and a
+# release is exactly a branch commit immediately followed by pushing a tag
+# that points at it - two independent workflow runs for the same commit,
+# with no ordering guarantee between them on this one physical runner.
+# Before the run ID was part of it, both runs used the identical
+# "helve-builder-amd64" name and "/tmp/helve-buildx-amd64" workdir: one
+# run's `rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"` (below) could delete or
+# truncate the other's in-flight buildkitd.toml between it being written
+# and `docker buildx create --buildkitd-config` reading it back - "file
+# missing right after being created" (see this project's own history of
+# that exact failure class), just triggered by two *workflow runs* racing
+# instead of two *architectures* racing within one run.
 #
-# Usage: setup-buildx.sh <suffix>   e.g. setup-buildx.sh amd64
+# Usage: setup-buildx.sh <suffix> <run-id>   e.g. setup-buildx.sh amd64 "$GITHUB_RUN_ID"
 set -euo pipefail
 
 SUFFIX="$1"
-BUILDER_NAME="helve-builder-${SUFFIX}"
-WORKDIR="/tmp/helve-buildx-${SUFFIX}"
+RUN_ID="${2:-local}"
+BUILDER_NAME="helve-builder-${SUFFIX}-${RUN_ID}"
+WORKDIR="/tmp/helve-buildx-${SUFFIX}-${RUN_ID}"
 
 docker run --rm --privileged tonistiigi/binfmt --install all
 
